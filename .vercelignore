@@ -1,0 +1,5 @@
+node_modules
+.next
+atlas-credentials.env
+.env*
+scripts/tmp

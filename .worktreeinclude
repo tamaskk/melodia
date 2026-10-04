@@ -1,0 +1,9 @@
+# Mi másolódjon át egy új worktree-be (claude --worktree).
+# Csak gitignore-olt fájlokra hat: a követett fájlokat a git úgyis kihozza.
+# .gitignore-szintaxis.
+
+atlas-credentials.env
+.env
+.env.local
+attachments/
+.claude/settings.local.json

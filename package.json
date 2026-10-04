@@ -6,21 +6,36 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "seed": "tsx scripts/seed.ts",
+    "typecheck": "tsc --noEmit",
+    "parse": "tsx scripts/parse-pdfs.ts",
+    "emails": "tsx scripts/apply-emails.ts",
+    "backfill-aliases": "tsx scripts/backfill-aliases.ts"
   },
   "dependencies": {
+    "@types/nodemailer": "^8.0.1",
+    "dotenv": "^17.4.2",
+    "imapflow": "^1.7.6",
+    "mailparser": "^3.9.17",
+    "mongodb": "^7.5.0",
     "next": "16.3.1",
+    "nodemailer": "^9.0.5",
     "react": "19.2.8",
     "react-dom": "19.2.8"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
+    "@types/mailparser": "^3.4.6",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.1",
+    "pdf-parse": "^2.4.5",
+    "pdfjs-dist": "^5.4.296",
     "tailwindcss": "^4",
+    "tsx": "^4.23.12",
     "typescript": "^5"
   }
 }
