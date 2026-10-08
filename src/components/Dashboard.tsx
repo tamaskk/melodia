@@ -624,7 +624,7 @@ export default function Dashboard({
                 setFilters({ ...EMPTY_FILTERS, ...todo.filters });
                 if (todo.panel) setPanel(todo.panel as RunKey);
               }}
-              className="group flex items-baseline gap-1.5"
+              className="group flex items-baseline gap-1.5 max-sm:py-1.5"
             >
               <span className={`font-semibold tabular-nums ${todo.tone}`}>
                 {formatNumber(todos[todo.key])}

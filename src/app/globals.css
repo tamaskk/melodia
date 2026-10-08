@@ -37,6 +37,18 @@ body {
   font-feature-settings: "cv02", "cv03", "cv04";
 }
 
+/*
+ * Az iOS ránagyít az oldalra, ha 16 px-nél kisebb betűs mezőbe koppintasz, és
+ * utána nem áll vissza. Telefonon ezért minden beviteli mező 16 px-es.
+ */
+@media (max-width: 639px) {
+  input:not([type="checkbox"]):not([type="radio"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;

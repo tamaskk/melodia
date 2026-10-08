@@ -51,6 +51,8 @@ export default function QueuesPanel() {
   const [error, setError] = useState<string | null>(null);
   // Elavult válasz ne írja felül a frisset.
   const requestRef = useRef(0);
+  const todayRef = useRef<HTMLTableCellElement>(null);
+  const scrolledRef = useRef(false);
 
   const load = useCallback(async () => {
     const request = ++requestRef.current;
@@ -113,6 +115,16 @@ export default function QueuesPanel() {
     }
     void act("DELETE", { id: queue.id });
   };
+
+  // Keskeny képernyőn a naptár vízszintesen görög: első betöltéskor a mai
+  // naphoz ugrunk, különben a múlt hét látszana. Utána nem nyúlunk hozzá, hogy
+  // a fél percenkénti frissítés ne rántsa vissza.
+  const loaded = Boolean(data);
+  useEffect(() => {
+    if (!loaded || scrolledRef.current) return;
+    scrolledRef.current = true;
+    todayRef.current?.scrollIntoView({ inline: "center", block: "nearest" });
+  }, [loaded]);
 
   const queues = data?.queues ?? [];
   const calendar = data?.calendar;
@@ -309,7 +321,7 @@ export default function QueuesPanel() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[var(--border)] text-[11px] text-[var(--muted)]">
-                  <th className="sticky left-0 bg-[var(--background)] px-3 py-2 text-left font-medium uppercase tracking-wider">
+                  <th className="sticky left-0 bg-[var(--background)] px-3 py-2 text-left font-medium uppercase tracking-wider max-sm:px-2">
                     Fiók
                   </th>
                   {calendar.days.map((day) => {
@@ -317,6 +329,7 @@ export default function QueuesPanel() {
                     return (
                       <th
                         key={day}
+                        ref={day === calendar.today ? todayRef : undefined}
                         className={`px-1.5 py-1.5 text-center font-normal ${
                           day === calendar.today
                             ? "bg-blue-500/10 text-foreground"
@@ -342,10 +355,10 @@ export default function QueuesPanel() {
                   >
                     <td
                       title={row.accountId}
-                      className="sticky left-0 whitespace-nowrap bg-[var(--background)] px-3 py-1.5"
+                      className="sticky left-0 whitespace-nowrap bg-[var(--background)] px-3 py-1.5 max-sm:max-w-28 max-sm:truncate max-sm:px-2 max-sm:text-xs"
                     >
                       {row.label}
-                      <span className="ml-1.5 text-[11px] text-[var(--muted)]">
+                      <span className="ml-1.5 text-[11px] text-[var(--muted)] max-sm:hidden">
                         {row.provider === "resend" ? "Resend" : "Gmail"}
                       </span>
                     </td>
@@ -355,7 +368,7 @@ export default function QueuesPanel() {
                   </tr>
                 ))}
                 <tr>
-                  <td className="sticky left-0 bg-[var(--background)] px-3 py-1.5 text-[11px] uppercase tracking-wider text-[var(--muted)]">
+                  <td className="sticky left-0 bg-[var(--background)] px-3 py-1.5 text-[11px] uppercase tracking-wider text-[var(--muted)] max-sm:px-2">
                     Összesen
                   </td>
                   {totals.map((value, index) =>
