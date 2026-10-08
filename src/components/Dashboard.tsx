@@ -731,7 +731,7 @@ export default function Dashboard({
               </button>
             ) : null}
 
-            <span className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1">
+            <span className="flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1">
               <span className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
                 Típus
               </span>
@@ -742,7 +742,7 @@ export default function Dashboard({
                   if (!value) return;
                   void bulkPatch({ kind: value });
                 }}
-                className="h-8 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500"
+                className="h-8 min-w-0 max-w-full flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500"
               >
                 <option value="">Átsorolás…</option>
                 {KINDS.map((kind) => (
@@ -753,7 +753,7 @@ export default function Dashboard({
               </select>
             </span>
 
-            <span className="flex items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1">
+            <span className="flex max-w-full flex-wrap items-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-2 py-1">
               <span className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
                 Forrás
               </span>
@@ -764,7 +764,7 @@ export default function Dashboard({
                   if (!value) return;
                   void bulkPatch({ source: value });
                 }}
-                className="h-8 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500"
+                className="h-8 min-w-0 max-w-full flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500"
               >
                 <option value="">Áthelyezés…</option>
                 {[
@@ -791,7 +791,7 @@ export default function Dashboard({
                   void bulkPatch({ source: key });
                 }}
                 placeholder="vagy új forrás + Enter"
-                className="h-8 w-40 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500"
+                className="h-8 w-40 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500 max-sm:w-full"
               />
             </span>
 

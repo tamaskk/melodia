@@ -211,6 +211,20 @@ export default function ContactTable({
             )}
           </li>
         ) : null}
+        {/* Asztalon ezt a táblázat fejlécének jelölőnégyzete adja. */}
+        {contacts.length ? (
+          <li className="px-3 py-1">
+            <label className="flex items-center gap-2 py-1.5 text-xs text-[var(--muted)]">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onToggleSelectAll}
+                className="size-4 accent-blue-500"
+              />
+              Az oldal mind a(z) {contacts.length} sorának kijelölése
+            </label>
+          </li>
+        ) : null}
         {contacts.map((contact) => {
           const stage = stageOf(contact);
           return (
