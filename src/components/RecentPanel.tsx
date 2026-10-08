@@ -122,8 +122,8 @@ export default function RecentPanel() {
       ) : null}
 
       <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-        <table className="w-full min-w-[900px] text-left text-sm">
-          <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+        <table className="w-full text-left text-sm max-sm:block sm:min-w-[900px]">
+          <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)] max-sm:hidden">
             <tr className="border-b border-[var(--border)]">
               <th className="px-3 py-2 font-medium">Mikor</th>
               <th className="px-3 py-2 font-medium">Cég</th>
@@ -133,17 +133,18 @@ export default function RecentPanel() {
               <th className="px-3 py-2 font-medium">Jegyzet</th>
             </tr>
           </thead>
-          <tbody>
+          {/* Telefonon a sorok kártyák, vízszintes görgetés nélkül. */}
+          <tbody className="max-sm:block">
             {rows.map((row) => {
               const result = outcome(row);
               const email = row.primaryEmail ?? row.email;
               return (
-                <tr key={row._id} className="border-b border-[var(--border)] align-top last:border-0">
-                  <td className="whitespace-nowrap px-3 py-2 text-xs text-[var(--muted)]">
+                <tr key={row._id} className="border-b border-[var(--border)] align-top last:border-0 max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-1.5 max-sm:p-3">
+                  <td className="whitespace-nowrap px-3 py-2 text-xs text-[var(--muted)] max-sm:block max-sm:p-0 max-sm:[&>span]:ml-2 max-sm:[&>span]:inline">
                     {when(row.emailSearchedAt)}
                     <span className="block">{row.model ?? "—"}</span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 max-sm:block max-sm:p-0 max-sm:order-first max-sm:w-full max-sm:font-medium">
                     {row.website ? (
                       <a
                         href={row.website}
@@ -158,14 +159,14 @@ export default function RecentPanel() {
                     )}
                     <span className="block text-xs text-[var(--muted)]">{row.country}</span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 max-sm:block max-sm:p-0">
                     <span
                       className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[11px] ${TONES[result.tone]}`}
                     >
                       {result.label}
                     </span>
                   </td>
-                  <td className="px-3 py-2">
+                  <td className="px-3 py-2 max-sm:block max-sm:p-0 max-sm:w-full max-sm:break-all">
                     {email ?? "—"}
                     <span className="block text-xs text-[var(--muted)]">
                       {[
@@ -202,10 +203,10 @@ export default function RecentPanel() {
                       ) : null}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-3 py-2">
+                  <td className="whitespace-nowrap px-3 py-2 max-sm:block max-sm:p-0 max-sm:text-xs max-sm:text-[var(--muted)] max-sm:before:content-['emberek:_']">
                     {row.people ? `${row.people} fő` : row.peopleSearchedAt ? "nincs" : "—"}
                   </td>
-                  <td className="max-w-md px-3 py-2 text-xs text-[var(--muted)]">
+                  <td className="max-w-md px-3 py-2 text-xs text-[var(--muted)] max-sm:block max-sm:p-0 max-sm:w-full">
                     {row.notes ?? "—"}
                   </td>
                 </tr>
@@ -213,7 +214,7 @@ export default function RecentPanel() {
             })}
             {!rows.length && !loading ? (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-[var(--muted)]">
+                <td colSpan={6} className="px-3 py-8 text-center text-[var(--muted)] max-sm:block max-sm:w-full">
                   Még nem futott keresés.
                 </td>
               </tr>

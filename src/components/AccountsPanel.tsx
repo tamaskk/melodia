@@ -194,8 +194,8 @@ export default function AccountsPanel() {
       ) : null}
 
       <div className="overflow-x-auto rounded-lg border border-[var(--border)]">
-        <table className="w-full min-w-[640px] text-left text-sm">
-          <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+        <table className="w-full text-left text-sm max-sm:block sm:min-w-[640px]">
+          <thead className="text-[11px] uppercase tracking-wider text-[var(--muted)] max-sm:hidden">
             <tr className="border-b border-[var(--border)]">
               <th className="px-3 py-2 font-medium">Címke</th>
               <th className="px-3 py-2 font-medium">Cím</th>
@@ -205,14 +205,17 @@ export default function AccountsPanel() {
               <th className="px-3 py-2" />
             </tr>
           </thead>
-          <tbody>
+          {/* Telefonon a sorok kártyák: a kapcsoló és a törlés görgetés nélkül elérhető. */}
+          <tbody className="max-sm:block">
             {accounts.map((account) => (
               <tr
                 key={account.id}
-                className="border-b border-[var(--border)] last:border-0"
+                className="border-b border-[var(--border)] last:border-0 max-sm:flex max-sm:flex-wrap max-sm:items-center max-sm:gap-x-3 max-sm:gap-y-1.5 max-sm:p-3"
               >
-                <td className="px-3 py-2">{account.label}</td>
-                <td className="px-3 py-2">
+                <td className="px-3 py-2 max-sm:block max-sm:p-0 max-sm:w-full max-sm:font-medium">
+                  {account.label}
+                </td>
+                <td className="px-3 py-2 max-sm:block max-sm:p-0 max-sm:w-full max-sm:break-all max-sm:text-[var(--muted)]">
                   {account.user}
                   {account.usable ? null : (
                     <span className="block text-xs text-red-300">
@@ -221,12 +224,14 @@ export default function AccountsPanel() {
                     </span>
                   )}
                 </td>
-                <td className="px-3 py-2">{account.fromName || "—"}</td>
-                <td className="px-3 py-2 text-xs text-[var(--muted)]">
+                <td className="px-3 py-2 max-sm:block max-sm:p-0 max-sm:text-xs max-sm:text-[var(--muted)]">
+                  {account.fromName || "—"}
+                </td>
+                <td className="px-3 py-2 text-xs text-[var(--muted)] max-sm:block max-sm:p-0">
                   {account.provider === "resend" ? "Resend" : "Gmail"}
                   {account.stored ? "" : " · env-fájlból"}
                 </td>
-                <td className="whitespace-nowrap px-3 py-2">
+                <td className="whitespace-nowrap px-3 py-2 max-sm:block max-sm:p-0 max-sm:w-full max-sm:pt-1">
                   {account.usable ? (
                     <button
                       type="button"
@@ -269,7 +274,7 @@ export default function AccountsPanel() {
                     </label>
                   ) : null}
                 </td>
-                <td className="px-3 py-2 text-right">
+                <td className="px-3 py-2 text-right max-sm:block max-sm:p-0 max-sm:empty:hidden">
                   {account.stored ? (
                     <button
                       type="button"
@@ -287,7 +292,7 @@ export default function AccountsPanel() {
               <tr>
                 <td
                   colSpan={6}
-                  className="px-3 py-8 text-center text-[var(--muted)]"
+                  className="px-3 py-8 text-center text-[var(--muted)] max-sm:block max-sm:w-full"
                 >
                   Még nincs küldő fiók.
                 </td>

@@ -623,7 +623,7 @@ export default function SendPanel({
                   return (
                     <label
                       key={file.key}
-                      className={`flex cursor-pointer items-center gap-1.5 rounded-full px-2 py-0.5 transition ${
+                      className={`flex max-w-full cursor-pointer items-center gap-1.5 rounded-2xl px-2 py-0.5 transition sm:rounded-full ${
                         on
                           ? "bg-emerald-500/15 text-emerald-200"
                           : "bg-[var(--surface-2)] text-[var(--muted)] line-through"
@@ -646,8 +646,8 @@ export default function SendPanel({
                         }}
                         className="size-3.5 accent-emerald-500"
                       />
-                      📎 {file.name}
-                      <span className="text-[11px] text-[var(--muted)]">
+                      <span className="min-w-0 break-all">📎 {file.name}</span>
+                      <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">
                         {size(file.bytes)}
                         {file.scope === "közös" ? "" : ` · csak ${file.scope}`}
                       </span>
