@@ -42,6 +42,7 @@ export function filtersFromParams(params: URLSearchParams): ContactFilters {
     done: (params.get("done") as ContactFilters["done"]) ?? undefined,
     starred: (params.get("starred") as ContactFilters["starred"]) ?? undefined,
     inQueue: (params.get("inQueue") as ContactFilters["inQueue"]) ?? undefined,
+    queueId: params.get("queueId") ?? undefined,
     sort: params.get("sort") ?? undefined,
   };
 }

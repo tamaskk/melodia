@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
 import { copyToClipboard } from "@/lib/clipboard";
@@ -125,6 +126,13 @@ function SelectField({
   );
 }
 
+/** A queue-k rövid listájából (`/api/queues?brief=1`) ennyi kell a panelnek. */
+interface QueueName {
+  id: string;
+  name: string;
+  runDate: string;
+}
+
 interface AiDraft {
   subject: string;
   body: string;
@@ -178,6 +186,33 @@ export default function MessagePanel({
   // Ha egyszer már kerestünk és nem lett cím, külön kattintás kell az újrához.
   const [forceSearch, setForceSearch] = useState(false);
   const [hideSearch, setHideSearch] = useState(false);
+
+  // Melyik queue-ban van: a kontakt csak az azonosítót hordja, a név a
+  // queue-k rövid listájából jön. `null` = még nem töltöttük be.
+  const [queueNames, setQueueNames] = useState<QueueName[] | null>(null);
+  const queueId = contact?.queueId ?? null;
+  const queue = queueId
+    ? (queueNames?.find((item) => item.id === queueId) ?? null)
+    : null;
+  const queueKnown = Boolean(queue);
+  useEffect(() => {
+    if (!queueId || queueKnown) return;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const response = await fetch("/api/queues?brief=1", {
+          cache: "no-store",
+          signal: controller.signal,
+        });
+        if (!response.ok) return;
+        const data = await response.json();
+        setQueueNames((data.queues ?? []) as QueueName[]);
+      } catch {
+        // a panel a queue neve nélkül is használható
+      }
+    })();
+    return () => controller.abort();
+  }, [queueId, queueKnown]);
 
   const openedId = useRef<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -515,6 +550,22 @@ export default function MessagePanel({
                       {new Date(contact.repliedAt).toLocaleDateString("hu-HU")}
                     </span>
                   ) : null}
+                  {queueId ? (
+                    <Link
+                      href="/queues"
+                      title="Ebben a kiküldési queue-ban van — megnyitás a Queue-k oldalon"
+                      className="rounded-full border border-blue-500/40 bg-blue-500/10 px-2 py-0.5 text-blue-300 hover:underline"
+                    >
+                      Queue:{" "}
+                      {queue
+                        ? `${queue.name} · ${queue.runDate}`
+                        : queueNames
+                          ? "ismeretlen"
+                          : "…"}
+                    </Link>
+                  ) : (
+                    <span className="text-[var(--muted)]">nincs queue-ban</span>
+                  )}
                   <details className="text-[var(--muted)]">
                     <summary className="cursor-pointer">
                       illeszkedés: {explainScore(contact).score} pont

@@ -232,6 +232,8 @@ export interface ContactFilters {
   starred?: "yes" | "no" | "";
   /** `yes` = benne van egy kiküldési queue-ban, `no` = egyikben sincs. */
   inQueue?: "yes" | "no" | "";
+  /** Egy adott queue tagjai (a queue azonosítója). */
+  queueId?: string;
   sort?: string;
 }
 

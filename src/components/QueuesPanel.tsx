@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatNumber } from "@/lib/format";
 import type { QueueInfo, QueueOverview } from "@/lib/sendQueues";
-import { button } from "./ui";
+import { STAGE_BY_VALUE, stageOf } from "@/lib/stage";
+import type { ContactDoc } from "@/lib/types";
+import { useMailMode } from "@/lib/useMailMode";
+import {
+  useSearchProvider,
+  type SearchProviderChoice,
+} from "@/lib/useSearchProvider";
+import MessagePanel from "./MessagePanel";
+import { button, field } from "./ui";
 
 /** Ennyi időnként magától frissül — futó küldésnél így követhető. */
 const REFRESH_MS = 30_000;
@@ -44,8 +52,218 @@ const STATUS: Record<QueueInfo["status"], { label: string; tone: string }> = {
   },
 };
 
-export default function QueuesPanel() {
+/** Ennyi címzett fér egy lapra a queue listájában. */
+const MEMBERS_PAGE = 25;
+
+/** Mit kap a kontakt panelje — ugyanaz, mint a Kontaktok oldalon. */
+interface PanelOptions {
+  aiEnabled?: boolean;
+  emailSearchEnabled?: boolean;
+  defaultProvider?: SearchProviderChoice;
+}
+
+/** Egy queue címzettjei: szöveges szűrő, lapozás, kattintásra a kontakt panelje. */
+function QueueMembers({
+  queueId,
+  aiEnabled = false,
+  emailSearchEnabled = false,
+  defaultProvider = "openai",
+}: PanelOptions & { queueId: string }) {
+  const [q, setQ] = useState("");
+  const [page, setPage] = useState(0);
+  const [contacts, setContacts] = useState<ContactDoc[] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [pageCount, setPageCount] = useState(1);
+  const [error, setError] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [mailMode] = useMailMode();
+  const [provider] = useSearchProvider(defaultProvider);
+  // Elavult válasz ne írja felül a frisset.
+  const requestRef = useRef(0);
+
+  const load = useCallback(
+    async (text: string, nextPage: number) => {
+      const request = ++requestRef.current;
+      const params = new URLSearchParams({
+        queueId,
+        sort: "company",
+        page: String(nextPage),
+        pageSize: String(MEMBERS_PAGE),
+      });
+      if (text.trim()) params.set("q", text.trim());
+      try {
+        const response = await fetch(`/api/contacts?${params}`, {
+          cache: "no-store",
+        });
+        const body = await response.json();
+        if (request !== requestRef.current) return;
+        if (!response.ok) throw new Error(body.error ?? "Betöltési hiba");
+        setContacts(body.contacts as ContactDoc[]);
+        setTotal(typeof body.total === "number" ? body.total : 0);
+        setPageCount(typeof body.pageCount === "number" ? body.pageCount : 1);
+        setError(null);
+      } catch (caught) {
+        if (request === requestRef.current) setError((caught as Error).message);
+      }
+    },
+    [queueId],
+  );
+
+  // Gépelés közben nem kérdezünk le minden betűnél.
+  useEffect(() => {
+    const timer = setTimeout(() => void load(q, page), 220);
+    return () => clearTimeout(timer);
+  }, [load, q, page]);
+
+  const patch = useCallback(
+    async (id: string, body: Record<string, unknown>) => {
+      setContacts(
+        (current) =>
+          current?.map((contact) =>
+            contact._id === id ? { ...contact, ...body } : contact,
+          ) ?? current,
+      );
+      try {
+        const response = await fetch(`/api/contacts/${id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error ?? "Mentési hiba");
+        setContacts(
+          (current) =>
+            current?.map((contact) =>
+              contact._id === id ? (data.contact as ContactDoc) : contact,
+            ) ?? current,
+        );
+      } catch (caught) {
+        setError((caught as Error).message);
+        throw caught; // a panel így mutatja a sikertelen mentést
+      }
+    },
+    [],
+  );
+
+  const closePanel = useCallback(() => setOpenId(null), []);
+  const openContact =
+    contacts?.find((contact) => contact._id === openId) ?? null;
+
+  return (
+    <div className="mt-3 space-y-2 border-t border-[var(--border)] pt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          type="search"
+          value={q}
+          onChange={(event) => {
+            setPage(0);
+            setQ(event.target.value);
+          }}
+          placeholder="Szűrés: cég, név, e-mail, város…"
+          aria-label="Címzettek szűrése"
+          className={`${field("sm")} min-w-0 flex-1 sm:max-w-xs`}
+        />
+        <span className="text-xs tabular-nums text-[var(--muted)]">
+          {contacts ? `${formatNumber(total)} címzett` : "betöltés…"}
+        </span>
+      </div>
+
+      {error ? (
+        <p role="alert" className="text-xs text-red-300">
+          {error}
+        </p>
+      ) : null}
+
+      {contacts?.length ? (
+        <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
+          {contacts.map((contact) => {
+            const stage = STAGE_BY_VALUE[stageOf(contact)];
+            return (
+              <li key={contact._id}>
+                <button
+                  type="button"
+                  onClick={() => setOpenId(contact._id)}
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-left text-sm transition hover:bg-[var(--surface-2)]"
+                >
+                  <span className="min-w-0 max-w-full truncate font-medium text-blue-400">
+                    {contact.company}
+                  </span>
+                  {contact.person ? (
+                    <span className="min-w-0 max-w-full truncate text-[var(--muted)]">
+                      {contact.person}
+                    </span>
+                  ) : null}
+                  <span className="min-w-0 max-w-full truncate font-mono text-xs text-[var(--muted)]">
+                    {contact.primaryEmail ?? "nincs e-mail"}
+                  </span>
+                  <span
+                    className={`ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[11px] ${stage.tone}`}
+                  >
+                    {stage.label}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {contacts && !contacts.length ? (
+        <p className="text-xs text-[var(--muted)]">
+          {q.trim()
+            ? "Nincs találat erre a szűrésre."
+            : "Ebben a queue-ban nincs címzett."}
+        </p>
+      ) : null}
+
+      {pageCount > 1 ? (
+        <div className="flex items-center justify-end gap-2 text-xs">
+          <button
+            type="button"
+            disabled={page === 0}
+            onClick={() => setPage((value) => Math.max(0, value - 1))}
+            className={button("secondary")}
+          >
+            ← Előző
+          </button>
+          <span className="tabular-nums text-[var(--muted)]">
+            {page + 1} / {pageCount}
+          </span>
+          <button
+            type="button"
+            disabled={page >= pageCount - 1}
+            onClick={() => setPage((value) => value + 1)}
+            className={button("secondary")}
+          >
+            Következő →
+          </button>
+        </div>
+      ) : null}
+
+      <MessagePanel
+        contact={openContact}
+        onClose={closePanel}
+        onPatch={patch}
+        aiEnabled={aiEnabled}
+        emailSearchEnabled={emailSearchEnabled}
+        provider={provider}
+        mailMode={mailMode}
+        onRestored={(restored) =>
+          setContacts(
+            (current) =>
+              current?.map((item) =>
+                item._id === restored._id ? restored : item,
+              ) ?? current,
+          )
+        }
+      />
+    </div>
+  );
+}
+
+export default function QueuesPanel(panelOptions: PanelOptions) {
   const [data, setData] = useState<QueueOverview | null>(null);
+  // Melyik queue címzettlistája van nyitva (egyszerre egy).
+  const [membersOf, setMembersOf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -248,7 +466,22 @@ export default function QueuesPanel() {
                     <p className="text-xs text-amber-300">{queue.note}</p>
                   ) : null}
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    aria-expanded={membersOf === queue.id}
+                    onClick={() =>
+                      setMembersOf((current) =>
+                        current === queue.id ? null : queue.id,
+                      )
+                    }
+                    className={button("secondary")}
+                  >
+                    Címzettek ({formatNumber(queue.total)}){" "}
+                    <span aria-hidden>
+                      {membersOf === queue.id ? "▴" : "▾"}
+                    </span>
+                  </button>
                   {queue.status === "varakozik" || queue.status === "fut" ? (
                     <button
                       type="button"
@@ -312,6 +545,10 @@ export default function QueuesPanel() {
                   órás ablakba fiókonként legfeljebb ~{queue.perDayByTime} levél
                   fér egy nap — a nagyobb napi keret ettől nem telik be.
                 </p>
+              ) : null}
+
+              {membersOf === queue.id ? (
+                <QueueMembers queueId={queue.id} {...panelOptions} />
               ) : null}
             </div>
           );
