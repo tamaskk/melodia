@@ -64,7 +64,9 @@ function read(suffix: string): MailAccount | null {
     /\s+/g,
     "",
   );
-  if (!user || !password) return null;
+  // Helykitöltő érték ("-", "x", "TODO") ne legyen fiók: az első fiók az
+  // alapértelmezett küldő és a postafiók-szinkron fiókja is.
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(user) || !password) return null;
 
   return {
     id: user,
