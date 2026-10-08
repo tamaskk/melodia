@@ -6,6 +6,7 @@ import {
   listQueueNames,
   queueOverview,
   requeueQueue,
+  setQueueAttachments,
   startQueue,
   stopQueue,
 } from "@/lib/sendQueues";
@@ -44,6 +45,7 @@ export async function GET(request: NextRequest) {
 /**
  * `{ action: "create", name, ids | filters, accounts: [{ accountId, dailyLimit }], minMinutes, maxMinutes, runDate }`
  * `{ action: "start" | "stop" | "requeue", id }`
+ * `{ action: "attachments", id, attachments: string[] }`
  */
 export async function POST(request: NextRequest) {
   try {
@@ -76,6 +78,12 @@ export async function POST(request: NextRequest) {
     if (body.action === "stop") {
       return NextResponse.json(await stopQueue(body.id));
     }
+    if (body.action === "attachments") {
+      const saved = await setQueueAttachments(body.id, body.attachments);
+      return NextResponse.json({
+        message: `Mentve — a következő levéltől ez megy: ${saved.join(", ")}.`,
+      });
+    }
     if (body.action === "requeue") {
       await requeueQueue(body.id);
       return NextResponse.json({
@@ -84,7 +92,10 @@ export async function POST(request: NextRequest) {
       });
     }
     return NextResponse.json(
-      { error: "Ismeretlen művelet. Lehet: create, start, stop, requeue." },
+      {
+        error:
+          "Ismeretlen művelet. Lehet: create, start, stop, requeue, attachments.",
+      },
       { status: 400 },
     );
   } catch (error) {

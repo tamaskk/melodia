@@ -176,6 +176,29 @@ export interface CampaignOptions {
   queueId?: string;
 }
 
+/**
+ * Mi megy a következő levéllel. A queue-ból indult menet nem az induláskori
+ * választást viszi végig: minden levél előtt a queue AKTUÁLIS választását
+ * olvassa, így amit menet közben kivettek a queue-ból, az már nem megy ki.
+ */
+export async function attachmentsNow(
+  options: CampaignOptions,
+): Promise<string[] | undefined> {
+  const { queueId } = options;
+  if (!queueId || !ObjectId.isValid(queueId)) return options.attachments;
+  const doc = await (
+    await getDb()
+  )
+    .collection<{ attachments?: string[] | null }>("send_queues")
+    .findOne(
+      { _id: new ObjectId(queueId) },
+      { projection: { attachments: 1 } },
+    );
+  // A queue-t közben törölték: a menet úgyis leáll, addig marad az induláskori.
+  if (!doc) return options.attachments;
+  return doc.attachments?.length ? doc.attachments : undefined;
+}
+
 const SKIP_LABEL: Record<SkipReason, string> = {
   "same-email": "erre a címre már ment levél",
   "same-domain": "erre a cégdomainre már ment levél",
@@ -1147,7 +1170,7 @@ async function run(runner: Runner): Promise<void> {
     const item = await deliver(
       runner.account,
       contact,
-      options.attachments,
+      await attachmentsNow(options),
       followUp ? await followUpRef(runner, contact._id) : null,
       options.cvLink ? credential("CV_URL") || null : null,
     );

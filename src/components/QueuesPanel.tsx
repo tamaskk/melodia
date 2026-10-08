@@ -267,20 +267,40 @@ type Overview = QueueOverview & { attachments?: AttachmentList };
 /**
  * Mely fájlok mennek a queue leveleivel, név szerint: a kiválasztottak, vagy —
  * ha nincs külön választás — minden, ami a küldő gép mappájában van.
+ *
+ * `onChange` mellett a fájlok ki-be kapcsolhatók: a küldő a következő levéltől
+ * az új választást viszi. Az utolsó fájl nem vehető ki.
  */
 function QueueFiles({
   keys,
   available,
+  onChange,
+  busy,
 }: {
   keys: string[] | null;
   available?: AttachmentList;
+  /** Hiányzik: a queue lezárult, a lista csak olvasható. */
+  onChange?: (next: string[]) => void;
+  busy: boolean;
 }) {
   const known = new Map(
     (available?.files ?? []).map((file) => [file.key, file]),
   );
-  const files = keys
-    ? keys.map((key) => ({ key, file: known.get(key) }))
-    : (available?.files ?? []).map((file) => ({ key: file.key, file }));
+  const allKeys = (available?.files ?? []).map((file) => file.key);
+  const selected = keys ?? allKeys;
+  // Szerkesztéskor a kivett fájlok is látszanak, hogy vissza lehessen tenni.
+  const shown = onChange ? [...new Set([...allKeys, ...selected])] : selected;
+  const files = shown.map((key) => ({
+    key,
+    file: known.get(key),
+    on: selected.includes(key),
+  }));
+  const hint = (file?: AttachmentList["files"][number]) =>
+    !file
+      ? "Nincs a küldő gép jegyzékében — lehet, hogy átnevezték vagy törölték."
+      : file.scope === "közös"
+        ? "Minden levélre felkerül."
+        : `Csak a(z) ${file.scope} nyelvű levelekre kerül fel.`;
 
   return (
     <div className="mt-1 space-y-1">
@@ -288,30 +308,49 @@ function QueueFiles({
         <span className="text-[var(--muted)]">
           Csatolmányok{keys ? "" : " (mind)"}:
         </span>
-        {files.map(({ key, file }) => (
-          <span
-            key={key}
-            title={
-              !file
-                ? "Nincs a küldő gép jegyzékében — lehet, hogy átnevezték vagy törölték."
-                : file.scope === "közös"
-                  ? "Minden levélre felkerül."
-                  : `Csak a(z) ${file.scope} nyelvű levelekre kerül fel.`
-            }
-            className={`flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 ${
-              file
-                ? "border-[var(--border)]"
-                : "border-amber-500/40 text-amber-300"
-            }`}
-          >
-            <span className="min-w-0 break-all">{file?.name ?? key}</span>
-            <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">
-              {file
-                ? `${fileSize(file.bytes)}${file.scope === "közös" ? "" : ` · csak ${file.scope}`}`
-                : "nincs a jegyzékben"}
-            </span>
-          </span>
-        ))}
+        {files.map(({ key, file, on }) => {
+          const last = on && selected.length === 1;
+          const tone = !on
+            ? "border-dashed border-[var(--border)] text-[var(--muted)]"
+            : file
+              ? "border-[var(--border)]"
+              : "border-amber-500/40 text-amber-300";
+          return (
+            <label
+              key={key}
+              title={
+                last && onChange
+                  ? "Az utolsó csatolmány nem vehető ki — csatolmány nélküli küldés queue-ból nem megy."
+                  : hint(file)
+              }
+              className={`flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 ${tone}`}
+            >
+              {onChange ? (
+                <input
+                  type="checkbox"
+                  checked={on}
+                  disabled={busy || last}
+                  onChange={() =>
+                    onChange(
+                      on
+                        ? selected.filter((item) => item !== key)
+                        : [...selected, key],
+                    )
+                  }
+                  className="size-4 shrink-0 accent-emerald-500"
+                />
+              ) : null}
+              <span className={`min-w-0 break-all ${on ? "" : "line-through"}`}>
+                {file?.name ?? key}
+              </span>
+              <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">
+                {file
+                  ? `${fileSize(file.bytes)}${file.scope === "közös" ? "" : ` · csak ${file.scope}`}`
+                  : "nincs a jegyzékben"}
+              </span>
+            </label>
+          );
+        })}
         {files.length === 0 ? (
           <span className="text-amber-300">
             {available?.remote
@@ -324,6 +363,12 @@ function QueueFiles({
         <p className="text-[11px] text-[var(--muted)]">
           A fájlok a küldő gépen vannak; a jegyzék frissült:{" "}
           {new Date(available.updatedAt).toLocaleString("hu-HU")}
+        </p>
+      ) : null}
+      {onChange && files.length ? (
+        <p className="text-[11px] text-[var(--muted)]">
+          Amit kiveszel, az a következő levéllel már nem megy ki — a már
+          elküldött leveleken nem változtat.
         </p>
       ) : null}
     </div>
@@ -523,6 +568,17 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
                   <QueueFiles
                     keys={queue.attachments}
                     available={data?.attachments}
+                    busy={busy}
+                    onChange={
+                      queue.status === "kesz"
+                        ? undefined
+                        : (attachments) =>
+                            void act("POST", {
+                              action: "attachments",
+                              id: queue.id,
+                              attachments,
+                            })
+                    }
                   />
                   {queue.status === "varakozik" ? (
                     <p className="text-xs text-[var(--muted)]">

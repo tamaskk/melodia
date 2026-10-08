@@ -197,22 +197,7 @@ export async function createQueue(input: {
     );
   }
 
-  // Hiányzó mező = minden csatolmány. Üres lista nem menthető: a küldő az
-  // üreset "mind"-nek érti, így csatolmány nélkül úgysem menne.
-  const attachments = Array.isArray(input.attachments)
-    ? [
-        ...new Set(
-          input.attachments.filter(
-            (key): key is string => typeof key === "string" && key.length > 0,
-          ),
-        ),
-      ]
-    : null;
-  if (attachments && !attachments.length) {
-    throw new Error(
-      "Válassz legalább egy csatolmányt — csatolmány nélküli küldés queue-ból nem megy.",
-    );
-  }
+  const attachments = cleanAttachments(input.attachments);
 
   const accounts: QueueAccount[] = [];
   for (const item of Array.isArray(input.accounts) ? input.accounts : []) {
@@ -785,6 +770,55 @@ export async function stopQueue(id: string): Promise<{ stopped: number }> {
     await setStatus(id, "leallitva", "Kézzel leállítva.");
   }
   return { stopped: running.length };
+}
+
+/**
+ * A klienstől kapott csatolmány-választás. Hiányzó mező = minden csatolmány
+ * (`null`). Üres lista nem menthető: a küldő az üreset "mind"-nek érti, így
+ * csatolmány nélkül úgysem menne.
+ */
+function cleanAttachments(input: unknown): string[] | null {
+  if (!Array.isArray(input)) return null;
+  const keys = [
+    ...new Set(
+      input.filter(
+        (key): key is string => typeof key === "string" && key.length > 0,
+      ),
+    ),
+  ];
+  if (!keys.length) {
+    throw new Error(
+      "Válassz legalább egy csatolmányt — csatolmány nélküli küldés queue-ból nem megy.",
+    );
+  }
+  return keys;
+}
+
+/**
+ * A queue csatolmányainak átírása — futás közben is. A küldő minden levél
+ * előtt a queue aktuális választását olvassa (`sendCampaign.ts`), így amit
+ * itt kiveszel, az a következő levéllel már nem megy.
+ */
+export async function setQueueAttachments(
+  id: string,
+  input: unknown,
+): Promise<string[]> {
+  if (!ObjectId.isValid(id)) throw new Error("Nincs ilyen queue.");
+  const attachments = cleanAttachments(input);
+  if (!attachments) {
+    throw new Error("Add meg a csatolmányok listáját.");
+  }
+  const result = await (
+    await queues()
+  ).updateOne(
+    { _id: new ObjectId(id), status: { $ne: "kesz" } },
+    { $set: { attachments } },
+  );
+  if (!result.matchedCount) {
+    throw new Error("Nincs ilyen queue, vagy már lezárult — azon nincs mit átírni.");
+  }
+  log.info(`queue csatolmányai átírva: ${attachments.join(", ")}`, { id });
+  return attachments;
 }
 
 /** Leállított queue vissza a sorba — az ütemező a következő körben felveszi. */
