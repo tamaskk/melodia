@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { formatNumber } from "@/lib/format";
+import { fileSize, formatNumber } from "@/lib/format";
 import { button, field } from "./ui";
 
 interface Account {
@@ -22,12 +22,6 @@ interface AttachmentFeed {
   files: Attachment[];
   /** A lista a küldő gép közzétett jegyzéke (telepített példányon). */
   remote: boolean;
-}
-
-function fileSize(bytes: number): string {
-  return bytes < 1024 * 1024
-    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
-    : `${(bytes / 1048576).toFixed(1)} MB`;
 }
 
 interface QueueName {
@@ -220,9 +214,9 @@ export default function QueueBar({
         >
           <p className="text-xs text-[var(--muted)]">
             Bekerül: {scope}. A lista rögzített — aki most benne van, az kap
-            levelet, a később felvett cégek nem. A queue a futás napján (üresen: ma)
-            indul a lokális szerveren, 7 és 19 óra között, és csak aznap fut:
-            ami nem megy ki, visszakerül a listába.
+            levelet, a később felvett cégek nem. A queue a futás napján (üresen:
+            ma) indul a lokális szerveren, 7 és 19 óra között, és csak aznap
+            fut: ami nem megy ki, visszakerül a listába.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="space-y-1">
@@ -367,7 +361,9 @@ export default function QueueBar({
                         <span className="min-w-0 break-all">{file.name}</span>
                         <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">
                           {fileSize(file.bytes)}
-                          {file.scope === "közös" ? "" : ` · csak ${file.scope}`}
+                          {file.scope === "közös"
+                            ? ""
+                            : ` · csak ${file.scope}`}
                         </span>
                       </label>
                     );

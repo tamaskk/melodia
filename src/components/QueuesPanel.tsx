@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { formatNumber } from "@/lib/format";
+import type { AttachmentList } from "@/lib/attachmentIndex";
+import { fileSize, formatNumber } from "@/lib/format";
 import type { QueueInfo, QueueOverview } from "@/lib/sendQueues";
 import { STAGE_BY_VALUE, stageOf } from "@/lib/stage";
 import type { ContactDoc } from "@/lib/types";
@@ -260,8 +261,77 @@ function QueueMembers({
   );
 }
 
+/** A queue-k áttekintése a küldő gép csatolmány-jegyzékével együtt. */
+type Overview = QueueOverview & { attachments?: AttachmentList };
+
+/**
+ * Mely fájlok mennek a queue leveleivel, név szerint: a kiválasztottak, vagy —
+ * ha nincs külön választás — minden, ami a küldő gép mappájában van.
+ */
+function QueueFiles({
+  keys,
+  available,
+}: {
+  keys: string[] | null;
+  available?: AttachmentList;
+}) {
+  const known = new Map(
+    (available?.files ?? []).map((file) => [file.key, file]),
+  );
+  const files = keys
+    ? keys.map((key) => ({ key, file: known.get(key) }))
+    : (available?.files ?? []).map((file) => ({ key: file.key, file }));
+
+  return (
+    <div className="mt-1 space-y-1">
+      <div className="flex flex-wrap items-center gap-1.5 text-xs">
+        <span className="text-[var(--muted)]">
+          Csatolmányok{keys ? "" : " (mind)"}:
+        </span>
+        {files.map(({ key, file }) => (
+          <span
+            key={key}
+            title={
+              !file
+                ? "Nincs a küldő gép jegyzékében — lehet, hogy átnevezték vagy törölték."
+                : file.scope === "közös"
+                  ? "Minden levélre felkerül."
+                  : `Csak a(z) ${file.scope} nyelvű levelekre kerül fel.`
+            }
+            className={`flex max-w-full items-center gap-1.5 rounded-lg border px-2 py-1 ${
+              file
+                ? "border-[var(--border)]"
+                : "border-amber-500/40 text-amber-300"
+            }`}
+          >
+            <span className="min-w-0 break-all">{file?.name ?? key}</span>
+            <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">
+              {file
+                ? `${fileSize(file.bytes)}${file.scope === "közös" ? "" : ` · csak ${file.scope}`}`
+                : "nincs a jegyzékben"}
+            </span>
+          </span>
+        ))}
+        {files.length === 0 ? (
+          <span className="text-amber-300">
+            {available?.remote
+              ? "a küldő gép még nem tette közzé a mappája jegyzékét — a levelekkel az megy, ami küldéskor a mappában van"
+              : "nincs fájl az attachments mappában — a levelek csatolmány nélkül mennek"}
+          </span>
+        ) : null}
+      </div>
+      {available?.remote && available.updatedAt ? (
+        <p className="text-[11px] text-[var(--muted)]">
+          A fájlok a küldő gépen vannak; a jegyzék frissült:{" "}
+          {new Date(available.updatedAt).toLocaleString("hu-HU")}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function QueuesPanel(panelOptions: PanelOptions) {
-  const [data, setData] = useState<QueueOverview | null>(null);
+  const [data, setData] = useState<Overview | null>(null);
   // Melyik queue címzettlistája van nyitva (egyszerre egy).
   const [membersOf, setMembersOf] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -278,7 +348,7 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
       const response = await fetch("/api/queues", { cache: "no-store" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Betöltési hiba");
-      if (request === requestRef.current) setData(body as QueueOverview);
+      if (request === requestRef.current) setData(body as Overview);
     } catch (caught) {
       if (request === requestRef.current) setError((caught as Error).message);
     }
@@ -450,12 +520,10 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
                       a futás napján — ami nem megy ki, visszakerül a listába.
                     </p>
                   ) : null}
-                  <p className="break-all text-xs text-[var(--muted)]">
-                    Csatolmány:{" "}
-                    {queue.attachments
-                      ? queue.attachments.join(", ")
-                      : "minden, ami küldéskor a küldő gép mappájában van"}
-                  </p>
+                  <QueueFiles
+                    keys={queue.attachments}
+                    available={data?.attachments}
+                  />
                   {queue.status === "varakozik" ? (
                     <p className="text-xs text-[var(--muted)]">
                       A lokális szerver indítja el a futás napján, 7 és 19 óra

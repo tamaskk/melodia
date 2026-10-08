@@ -105,3 +105,34 @@ body {
     opacity: 0.6;
   }
 }
+
+/*
+ * Kétfogantyús csúszka (Munkák → JobAssist fizetésszűrő): két natív csúszka
+ * fekszik egymáson, ezért a sávjuk átlátszó és nem kattintható — csak a
+ * fogantyú fogható meg.
+ */
+.range-thumb::-webkit-slider-thumb {
+  pointer-events: auto;
+  -webkit-appearance: none;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: var(--foreground);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+.range-thumb::-moz-range-thumb {
+  pointer-events: auto;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: var(--foreground);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+}
+.range-thumb::-webkit-slider-runnable-track {
+  background: transparent;
+}
+.range-thumb::-moz-range-track {
+  background: transparent;
+}

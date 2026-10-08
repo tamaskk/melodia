@@ -30,6 +30,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       ...(await queueOverview()),
       accounts: publicAccounts(),
+      // A kártyák ebből írják ki név szerint, mi megy a levelekkel.
+      attachments: await availableAttachments(),
     });
   } catch (error) {
     return NextResponse.json(
@@ -77,7 +79,8 @@ export async function POST(request: NextRequest) {
     if (body.action === "requeue") {
       await requeueQueue(body.id);
       return NextResponse.json({
-        message: "Visszatéve a sorba — a lokális szerver a következő körben felveszi.",
+        message:
+          "Visszatéve a sorba — a lokális szerver a következő körben felveszi.",
       });
     }
     return NextResponse.json(
