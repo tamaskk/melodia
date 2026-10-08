@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { ObjectId } from "mongodb";
-import { listAccounts } from "@/lib/accounts";
+import { ensureAccounts, listAccounts } from "@/lib/accounts";
 import { countContacts, listContacts } from "@/lib/contacts";
 import { latestReplies } from "@/lib/mailStore";
 import { sendFollowUpEmail } from "@/lib/mailer";
@@ -108,6 +108,7 @@ export async function POST(request: NextRequest) {
         );
       }
       // Arról a címről válaszolunk, amire a levél jött.
+      await ensureAccounts();
       const account =
         listAccounts().find(
           (item) => item.user.toLowerCase() === reply.to.toLowerCase(),

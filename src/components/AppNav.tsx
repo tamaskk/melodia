@@ -34,6 +34,21 @@ const SOURCING: NavLink[] = [
 
 const SYSTEM: NavLink[] = [
   {
+    href: "/queues",
+    label: "Queue-k és naptár",
+    hint: "Előre összeállított kiküldési sorok, fiókonkénti napi terv",
+  },
+  {
+    href: "/accounts",
+    label: "Küldő fiókok",
+    hint: "Gmail- és Resend-fiókok felvétele a kiküldéshez",
+  },
+  {
+    href: "/recent",
+    label: "Legutóbbi keresések",
+    hint: "Melyik céghez mit mentett a keresés vagy a bot",
+  },
+  {
     href: "/usage",
     label: "Tokenek",
     hint: "Mennyi tokent fogyott a keresés — export",

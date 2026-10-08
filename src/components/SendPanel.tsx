@@ -5,6 +5,7 @@ import { useReportActive } from "./useReportActive";
 import { useStatusPoll } from "./useStatusPoll";
 import { TEST_MODE_LIMIT } from "@/lib/sendWindow";
 import Link from "next/link";
+import QueueBar from "./QueueBar";
 import SendPreview, {
   type PreflightCheck,
   type PreviewItem,
@@ -32,6 +33,7 @@ interface Account {
   id: string;
   user: string;
   label: string;
+  provider?: "gmail" | "resend";
 }
 
 interface CampaignState {
@@ -60,6 +62,8 @@ interface CampaignState {
   skipped?: { sameEmail: number; sameDomain: number; inQueue: number };
   /** Felfuttatási plafon (új fiók), vagy `null`. */
   warmupCap?: number | null;
+  /** A fiók saját napi maximuma (Küldő fiókok oldal), vagy `null`. */
+  accountMax?: number | null;
 }
 
 interface CampaignFeed {
@@ -102,14 +106,20 @@ const isActive = (campaign?: CampaignState | null) =>
  * kerettel megy, és egyszerre több is futhat. A felső sávban látszik, melyik
  * fut éppen és hol tart.
  */
-/** A tényleges napi keret: a beállított és a felfuttatási plafon közül a kisebb. */
+/**
+ * A tényleges napi keret: a beállított, a felfuttatási plafon és a fiók saját
+ * maximuma közül a legkisebb.
+ */
 function limitOf(campaign: {
   dailyLimit: number;
   warmupCap?: number | null;
+  accountMax?: number | null;
 }): number {
-  return campaign.warmupCap
-    ? Math.min(campaign.dailyLimit, campaign.warmupCap)
-    : campaign.dailyLimit;
+  return Math.min(
+    campaign.dailyLimit,
+    campaign.warmupCap || Infinity,
+    campaign.accountMax || Infinity,
+  );
 }
 
 export default function SendPanel({
@@ -359,7 +369,9 @@ export default function SendPanel({
                 <span className="font-medium">{account.label}</span>
                 {campaign ? (
                   <span className="tabular-nums">
-                    {campaign.sentToday}/{limitOf(campaign)}
+                    {campaign.sentToday}/
+                    {/* Álló fióknál az számít, amit most indítanál — nem a legutóbbi menet kerete. */}
+                    {limitOf(running ? campaign : { ...campaign, dailyLimit })}
                     {campaign.warmupCap ? (
                       <span
                         className="text-amber-300"
@@ -390,6 +402,15 @@ export default function SendPanel({
             </span>
           ) : null}
         </div>
+      ) : null}
+
+      {accounts.length ? (
+        <QueueBar
+          accounts={accounts}
+          selectedIds={selectedIds}
+          filters={filters}
+          onStarted={() => void refresh()}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 p-3">

@@ -13,6 +13,9 @@ export async function register() {
   const { createLogger } = await import("@/lib/logger");
   const log = createLogger("indulas");
 
+  // A felületen felvett fiókok: a szinkron és a folytatás is ezeket olvassa.
+  await (await import("@/lib/accounts")).ensureAccounts();
+
   // Illeszkedési pontszám: induláskor a teljes listára (a háttérben, ~1 perc),
   // hogy a szabályok változása után is friss legyen a rendezés.
   void import("@/lib/contacts")
@@ -38,6 +41,14 @@ export async function register() {
   } catch (error) {
     log.error("az automatikus szinkron nem indult", (error as Error).message);
   }
+
+  // Queue-ütemező: 10 percenként felveszi az esedékes queue-kat (csak lokálisan).
+  const { startQueueRunner } = await import("@/lib/sendQueues");
+  log.info(
+    startQueueRunner()
+      ? "queue-ütemező fut: 10 percenként, indítás 7 és 19 óra között"
+      : "queue-ütemező kikapcsolva (telepített példány)",
+  );
 
   try {
     const resumed = await resumeCampaigns();

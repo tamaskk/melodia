@@ -7,7 +7,7 @@ import {
   startCampaign,
   stopCampaign,
 } from "@/lib/sendCampaign";
-import { publicAccounts } from "@/lib/accounts";
+import { ensureAccounts, publicAccounts } from "@/lib/accounts";
 import { attachmentsDir, listAttachments } from "@/lib/attachments";
 import { isMailerReady, verifyMailer } from "@/lib/mailer";
 import { createLogger } from "@/lib/logger";
@@ -17,6 +17,7 @@ export const dynamic = "force-dynamic";
 const log = createLogger("api:kuldes");
 
 export async function GET() {
+  await ensureAccounts();
   const [hu, en] = await Promise.all([
     listAttachments("hu"),
     listAttachments("en"),
@@ -59,6 +60,7 @@ export async function GET() {
  */
 export async function POST(request: NextRequest) {
   try {
+    await ensureAccounts();
     const body = (await request.json().catch(() => ({}))) as {
       action?: string;
       accountId?: string;

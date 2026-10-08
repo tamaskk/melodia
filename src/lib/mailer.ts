@@ -7,9 +7,11 @@
  *
  * A napi 15-20 levél messze a Gmail ~500 címzett/napos kerete alatt van.
  */
+import { readFile } from "node:fs/promises";
 import nodemailer, { type Transporter } from "nodemailer";
 import { getAccount, listAccounts, type MailAccount } from "./accounts";
 import { listAttachments, resolveSelection } from "./attachments";
+import { credential } from "./env";
 import { createLogger } from "./logger";
 import type { ContactDoc } from "./types";
 
@@ -46,6 +48,109 @@ function getTransporter(config: MailerConfig): Transporter {
   return transporter;
 }
 
+/** Törölt fiók kapcsolatának lezárása — különben a régi jelszóval élne tovább. */
+export function forgetTransporter(accountId: string): void {
+  transporters.get(accountId)?.close();
+  transporters.delete(accountId);
+}
+
+/** A bejövő levelek fiókja: IMAP csak Gmailhez van, a Resendnek nincs postafiókja. */
+export function inboxConfig(): MailerConfig | null {
+  return listAccounts().find((account) => account.provider === "gmail") ?? null;
+}
+
+interface Outgoing {
+  to: string;
+  subject: string;
+  text: string;
+  files: { filename: string; path: string }[];
+  /** Az eredeti levél azonosítója `<…>` alakban, ha szálban megy. */
+  reference: string | null;
+}
+
+interface Dispatched {
+  messageId: string;
+  accepted: string[];
+  rejected: string[];
+}
+
+/** Egy levél a fiók szolgáltatóján át: Gmail SMTP-n, Resend a HTTP API-ján. */
+async function dispatch(
+  config: MailerConfig,
+  mail: Outgoing,
+): Promise<Dispatched> {
+  if (config.provider === "resend") return dispatchResend(config, mail);
+
+  const info = await getTransporter(config).sendMail({
+    from: `${config.fromName} <${config.user}>`,
+    to: mail.to,
+    ...(config.replyTo ? { replyTo: config.replyTo } : {}),
+    subject: mail.subject,
+    text: mail.text,
+    attachments: mail.files,
+    ...(mail.reference
+      ? { inReplyTo: mail.reference, references: [mail.reference] }
+      : {}),
+  });
+  return {
+    messageId: String(info.messageId ?? ""),
+    accepted: (info.accepted ?? []).map(String),
+    rejected: (info.rejected ?? []).map(String),
+  };
+}
+
+async function dispatchResend(
+  config: MailerConfig,
+  mail: Outgoing,
+): Promise<Dispatched> {
+  const key = credential("RESEND_API_KEY");
+  if (!key) {
+    throw new Error(
+      "Nincs RESEND_API_KEY az atlas-credentials.env fájlban — a Resend-fiókból így nem megy levél.",
+    );
+  }
+  const attachments = await Promise.all(
+    mail.files.map(async (file) => ({
+      filename: file.filename,
+      content: (await readFile(file.path)).toString("base64"),
+    })),
+  );
+
+  const response = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: `${config.fromName} <${config.user}>`,
+      to: [mail.to],
+      subject: mail.subject,
+      text: mail.text,
+      ...(config.replyTo ? { reply_to: config.replyTo } : {}),
+      ...(attachments.length ? { attachments } : {}),
+      ...(mail.reference
+        ? {
+            headers: {
+              "In-Reply-To": mail.reference,
+              References: mail.reference,
+            },
+          }
+        : {}),
+    }),
+  });
+  const data = (await response.json().catch(() => ({}))) as {
+    id?: string;
+    message?: string;
+  };
+  if (!response.ok || !data.id) {
+    throw new Error(
+      `Resend hiba (${response.status}): ${data.message ?? "ismeretlen hiba"}`,
+    );
+  }
+  return { messageId: data.id, accepted: [mail.to], rejected: [] };
+}
+
 /** Kapcsolat- és jelszóellenőrzés küldés nélkül. */
 export async function verifyMailer(
   accountId?: string | null,
@@ -58,6 +163,18 @@ export async function verifyMailer(
         "Nincs beállítva a küldés. Az atlas-credentials.env-be kell: GMAIL_USER és " +
         "GMAIL_APP_PASSWORD (Google app-jelszó, kétlépcsős azonosítással).",
     };
+  }
+  if (config.provider === "resend") {
+    // A Resendnél nincs belépés, amit küldés nélkül ki lehetne próbálni.
+    return credential("RESEND_API_KEY")
+      ? {
+          ok: true,
+          message: `Resend-kulcs beállítva: ${config.user}. A domaint a próbalevél igazolja.`,
+        }
+      : {
+          ok: false,
+          message: "Nincs RESEND_API_KEY az atlas-credentials.env fájlban.",
+        };
   }
   try {
     await getTransporter(config).verify();
@@ -124,36 +241,32 @@ export async function sendContactEmail(
     ? `${contact.emailBody}\n\n${contact.language === "hu" ? "Önéletrajzom" : "My CV"}: ${cvUrl}`
     : contact.emailBody;
 
-  const info = await getTransporter(config).sendMail({
-    from: `${config.fromName} <${config.user}>`,
+  const { messageId, accepted, rejected } = await dispatch(config, {
     to: contact.primaryEmail,
-    ...(config.replyTo ? { replyTo: config.replyTo } : {}),
     subject: contact.emailSubject,
     text,
-    attachments: files.map((file) => ({
+    files: files.map((file) => ({
       filename: file.filename,
       path: file.path,
     })),
+    reference: null,
   });
-
-  const accepted = (info.accepted ?? []).map(String);
-  const rejected = (info.rejected ?? []).map(String);
   log.info(`levél elküldve: ${contact.company} → ${contact.primaryEmail}`, {
     fiok: config.user,
-    messageId: info.messageId,
+    messageId,
     csatolmany: files.map((file) => file.filename),
     rejected,
   });
 
   if (!accepted.length) {
     throw new Error(
-      `A Gmail nem fogadta el a címzettet: ${rejected.join(", ")}`,
+      `A szolgáltató nem fogadta el a címzettet: ${rejected.join(", ")}`,
     );
   }
 
   return {
     account: config.user,
-    messageId: String(info.messageId ?? ""),
+    messageId,
     accepted,
     rejected,
     attachments: files.map((file) => file.filename),
@@ -185,33 +298,29 @@ export async function sendFollowUpEmail(options: {
       : `<${options.inReplyTo}>`
     : null;
 
-  const info = await getTransporter(config).sendMail({
-    from: `${config.fromName} <${config.user}>`,
+  const { messageId, accepted, rejected } = await dispatch(config, {
     to: options.to,
-    ...(config.replyTo ? { replyTo: config.replyTo } : {}),
     subject: options.subject,
     text: options.body,
-    ...(reference ? { inReplyTo: reference, references: [reference] } : {}),
+    files: [],
+    reference,
   });
-
-  const accepted = (info.accepted ?? []).map(String);
-  const rejected = (info.rejected ?? []).map(String);
   log.info(
     `${options.kind ?? "follow-up"} elküldve: ${options.company} → ${options.to}`,
     {
       fiok: config.user,
-      messageId: info.messageId,
+      messageId,
       szalban: Boolean(reference),
     },
   );
   if (!accepted.length) {
     throw new Error(
-      `A Gmail nem fogadta el a címzettet: ${rejected.join(", ")}`,
+      `A szolgáltató nem fogadta el a címzettet: ${rejected.join(", ")}`,
     );
   }
   return {
     account: config.user,
-    messageId: String(info.messageId ?? ""),
+    messageId,
     accepted,
     rejected,
     attachments: [],

@@ -120,6 +120,10 @@ export interface CampaignState {
   skipped?: SkipCounts;
   /** Felfuttatási napi plafon (warmup.ts), vagy `null`, ha a fiók túl van rajta. */
   warmupCap?: number | null;
+  /** A fiók saját napi maximuma (kikapcsolt felfuttatásnál), vagy `null`. */
+  accountMax?: number | null;
+  /** A queue, amelyből a mostani (vagy legutóbbi) menet indult. */
+  queueId?: string | null;
 }
 
 export interface SkipCounts {
@@ -167,6 +171,13 @@ export interface CampaignOptions {
   mode?: "initial" | "followup";
   /** Csatolmány helyett CV-link (a `CV_URL` beállításból). */
   cvLink?: boolean;
+  /** Melyik queue-ból indult (`sendQueues.ts`). */
+  queueId?: string;
+  /**
+   * Igaz: a napi keret elfogyásakor a menet nem ér véget, hanem megvárja a
+   * következő napot. A queue-k így maguktól végigmennek.
+   */
+  keepAlive?: boolean;
 }
 
 const SKIP_LABEL: Record<SkipReason, string> = {
@@ -306,7 +317,14 @@ export function campaignState(accountId?: string | null): CampaignState | null {
   if (!account) return null;
   const runner = runnerFor(account);
   resetDailyCounterIfNeeded(runner);
+  refreshCap(runner);
   return { ...runner.state, recent: [...runner.state.recent] };
+}
+
+/** A felfuttatás a beállításokban bármikor ki-be kapcsolható — kövesse az állapot. */
+function refreshCap(runner: Runner): void {
+  if (runner.firstSendAt !== undefined) runner.state.warmupCap = capOf(runner);
+  runner.state.accountMax = maxOf(runner);
 }
 
 /** Minden fiók állapota — ebből látszik, melyik fut és hol tart. */
@@ -317,6 +335,7 @@ export function allCampaignStates(): CampaignState[] {
     // A felfuttatási plafon betöltése a háttérben — a következő lekérdezés mutatja.
     if (runner.firstSendAt === undefined)
       void ensureFirstSend(runner).catch(() => undefined);
+    refreshCap(runner);
     return { ...runner.state, recent: [...runner.state.recent] };
   });
 }
@@ -567,6 +586,7 @@ export async function resumeCampaigns(): Promise<number> {
         minMinutes: doc.options.minMinutes,
         maxMinutes: doc.options.maxMinutes,
         recent: doc.recent ?? [],
+        queueId: doc.options.queueId ?? null,
       } satisfies Partial<CampaignState>);
 
       for (const id of runner.queue) claimed.set(id, account.id);
@@ -945,15 +965,31 @@ async function ensureFirstSend(runner: Runner): Promise<void> {
       (saved as { firstSendAt?: string | null } | null)?.firstSendAt ??
       (await firstOutgoingFrom(runner.account.user));
   }
-  runner.state.warmupCap = warmupCap(runner.firstSendAt);
+  runner.state.warmupCap = capOf(runner);
 }
 
-/** A tényleges napi keret: a beállított és a felfuttatási plafon közül a kisebb. */
+/** A fiók felfuttatási plafonja — `null`, ha túl van rajta, vagy ki van kapcsolva. */
+function capOf(runner: Runner): number | null {
+  return runner.account.warmup
+    ? warmupCap(runner.firstSendAt, runner.account.provider)
+    : null;
+}
+
+/** A fiók saját napi maximuma — csak kikapcsolt felfuttatásnál él. */
+function maxOf(runner: Runner): number | null {
+  return runner.account.warmup ? null : runner.account.dailyMax;
+}
+
+/**
+ * A tényleges napi keret: az indításkor beállított, a felfuttatási plafon és a
+ * fiók saját maximuma közül a legkisebb.
+ */
 function dailyLimitOf(runner: Runner): number {
-  const cap = warmupCap(runner.firstSendAt);
-  return cap === null
-    ? runner.options.dailyLimit
-    : Math.min(runner.options.dailyLimit, cap);
+  return Math.min(
+    runner.options.dailyLimit,
+    capOf(runner) ?? Infinity,
+    maxOf(runner) ?? Infinity,
+  );
 }
 
 async function run(runner: Runner): Promise<void> {
@@ -963,7 +999,9 @@ async function run(runner: Runner): Promise<void> {
   log.info(
     `indul (${account.user}): ${runner.queue.length} címzett a sorban, ` +
       `napi keret ${dailyLimitOf(runner)}${
-        runner.state.warmupCap ? ` (${warmupLabel(runner.firstSendAt)})` : ""
+        runner.state.warmupCap
+          ? ` (${warmupLabel(runner.firstSendAt, account.provider)})`
+          : ""
       }, ` +
       `szünet ${options.minMinutes}-${options.maxMinutes} perc, ` +
       (options.testMode
@@ -991,10 +1029,25 @@ async function run(runner: Runner): Promise<void> {
     }
 
     resetDailyCounterIfNeeded(runner);
+    if (state.sentToday >= dailyLimitOf(runner) && options.keepAlive) {
+      // Queue-ból indított menet: megvárja a holnapot. Darabokban alszik, hogy
+      // a napváltást észrevegye; a leállítás azonnal felébreszti.
+      const midnight = new Date();
+      midnight.setHours(24, 0, 0, 0);
+      state.current = null;
+      state.nextAt = midnight.toISOString();
+      state.message =
+        `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}) — ` +
+        "holnap magától folytatódik.";
+      await sleep(runner, 15 * 60_000);
+      continue;
+    }
     if (state.sentToday >= dailyLimitOf(runner)) {
       state.message =
         `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}${
-          runner.state.warmupCap ? `, ${warmupLabel(runner.firstSendAt)}` : ""
+          runner.state.warmupCap
+            ? `, ${warmupLabel(runner.firstSendAt, account.provider)}`
+            : ""
         }). ` + "Holnap folytatható.";
       log.info(`${account.user}: ${state.message}`);
       break;
@@ -1133,7 +1186,7 @@ async function run(runner: Runner): Promise<void> {
       // A felfuttatás az első sikeres küldéstől számít.
       if (!runner.firstSendAt) {
         runner.firstSendAt = item.at;
-        state.warmupCap = warmupCap(runner.firstSendAt);
+        state.warmupCap = capOf(runner);
       }
     }
     state.remaining = runner.queue.length;
@@ -1279,6 +1332,7 @@ export async function startCampaign(
     minMinutes: options.minMinutes,
     maxMinutes: options.maxMinutes,
     recent: [],
+    queueId: options.queueId ?? null,
   } satisfies Partial<CampaignState>);
 
   runner.queue = await buildQueue(runner);

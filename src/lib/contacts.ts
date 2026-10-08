@@ -333,6 +333,78 @@ export async function listContactIds(
   return docs.map((doc) => doc._id.toString());
 }
 
+export interface RecentSearch {
+  _id: string;
+  company: string;
+  country: string;
+  website: string | null;
+  primaryEmail: string | null;
+  emailSearchedAt: string;
+  /** Amit a keresés talált — nem biztos, hogy be is lett írva. */
+  email: string | null;
+  confidence: string | null;
+  source: string | null;
+  applyUrl: string | null;
+  alternatives: number;
+  notes: string | null;
+  model: string | null;
+  people: number;
+  peopleSearchedAt: string | null;
+}
+
+/**
+ * A legutóbb keresett cégek, a legfrissebb elöl — csak az a pár mező, ami a
+ * listához kell, a darabszámokat a szerver számolja.
+ */
+export async function listRecentSearches(
+  options: ListOptions & { withEmail?: boolean } = {},
+): Promise<{ rows: RecentSearch[]; total: number }> {
+  const collection = await getContacts();
+  const pageSize = Math.max(1, Math.min(200, options.pageSize ?? 50));
+  const page = Math.max(0, options.page ?? 0);
+  const query = {
+    emailSearchedAt: { $ne: null },
+    ...(options.withEmail ? { primaryEmail: { $ne: null } } : {}),
+  } as Filter<Contact>;
+
+  const [docs, total] = await Promise.all([
+    collection
+      .aggregate<Omit<RecentSearch, "_id"> & { _id: ObjectId }>([
+        { $match: query },
+        { $sort: { emailSearchedAt: -1 } },
+        { $skip: page * pageSize },
+        { $limit: pageSize },
+        {
+          $project: {
+            company: 1,
+            country: 1,
+            website: 1,
+            primaryEmail: 1,
+            emailSearchedAt: 1,
+            email: { $ifNull: ["$emailSearch.email", null] },
+            confidence: { $ifNull: ["$emailSearch.confidence", null] },
+            source: { $ifNull: ["$emailSearch.source", null] },
+            applyUrl: { $ifNull: ["$emailSearch.applyUrl", null] },
+            alternatives: {
+              $size: { $ifNull: ["$emailSearch.alternatives", []] },
+            },
+            notes: { $ifNull: ["$emailSearchNote", null] },
+            model: { $ifNull: ["$emailSearch.model", null] },
+            people: { $size: { $ifNull: ["$people", []] } },
+            peopleSearchedAt: { $ifNull: ["$peopleSearchedAt", null] },
+          },
+        },
+      ])
+      .toArray(),
+    collection.countDocuments(query),
+  ]);
+
+  return {
+    rows: docs.map((doc) => ({ ...doc, _id: doc._id.toString() })),
+    total,
+  };
+}
+
 export async function getContactById(id: string): Promise<ContactDoc | null> {
   if (!ObjectId.isValid(id)) return null;
   const collection = await getContacts();
