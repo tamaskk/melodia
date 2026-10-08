@@ -76,6 +76,8 @@ interface CampaignFeed {
     dir: string;
     files: AttachmentFile[];
     warning: string | null;
+    /** A lista a küldő gép közzétett jegyzéke (telepített példányon). */
+    remote?: boolean;
   };
 }
 
@@ -607,7 +609,15 @@ export default function SendPanel({
 
       {feed?.attachments ? (
         <div className="space-y-1 border-t border-[var(--border)] px-3 py-2 text-xs">
-          {(feed.attachments.files?.length ?? 0) === 0 ? (
+          {(feed.attachments.files?.length ?? 0) === 0 &&
+          feed.attachments.remote ? (
+            <p className="text-amber-300">
+              A küldő gép még nem tette közzé a csatolmányai listáját. Indítsd
+              el a lokális szervert — a fájlok annak az{" "}
+              <code className="text-[var(--muted)]">attachments</code>{" "}
+              mappájából mennek, ide nem kell feltölteni őket.
+            </p>
+          ) : (feed.attachments.files?.length ?? 0) === 0 ? (
             <p className="text-amber-300">
               Nincs csatolmány. Tedd a fájlokat ebbe a mappába:{" "}
               <code className="text-[var(--muted)]">

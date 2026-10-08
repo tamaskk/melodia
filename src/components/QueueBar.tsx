@@ -11,6 +11,25 @@ interface Account {
   provider?: "gmail" | "resend";
 }
 
+interface Attachment {
+  key: string;
+  name: string;
+  bytes: number;
+  scope: string;
+}
+
+interface AttachmentFeed {
+  files: Attachment[];
+  /** A lista a küldő gép közzétett jegyzéke (telepített példányon). */
+  remote: boolean;
+}
+
+function fileSize(bytes: number): string {
+  return bytes < 1024 * 1024
+    ? `${Math.max(1, Math.round(bytes / 1024))} KB`
+    : `${(bytes / 1048576).toFixed(1)} MB`;
+}
+
 interface QueueName {
   id: string;
   name: string;
@@ -45,6 +64,9 @@ export default function QueueBar({
   const [bound, setBound] = useState<Record<string, number>>({});
   // Üresen a mai nap: a szerver a feladó naptára szerint tölti ki.
   const [runDate, setRunDate] = useState("");
+  const [files, setFiles] = useState<AttachmentFeed | null>(null);
+  // `null` = nem nyúltál hozzá: minden megy, a később betett fájlok is.
+  const [picked, setPicked] = useState<string[] | null>(null);
   const [minMinutes, setMinMinutes] = useState(10);
   const [maxMinutes, setMaxMinutes] = useState(20);
   const [busy, setBusy] = useState(false);
@@ -56,7 +78,10 @@ export default function QueueBar({
       const response = await fetch("/api/queues?brief=1", {
         cache: "no-store",
       });
-      if (response.ok) setQueues((await response.json()).queues as QueueName[]);
+      if (!response.ok) return;
+      const data = await response.json();
+      setQueues(data.queues as QueueName[]);
+      setFiles((data.attachments ?? null) as AttachmentFeed | null);
     } catch {
       // a sáv queue-lista nélkül is használható
     }
@@ -102,8 +127,11 @@ export default function QueueBar({
       minMinutes,
       maxMinutes,
       runDate,
+      // Érintetlenül nem küldünk listát: az "minden csatolmány"-t jelent.
+      ...(picked ? { attachments: picked } : {}),
     });
     if (!data) return;
+    setPicked(null);
     const skipped = Number(data.skipped ?? 0);
     setNote(
       `Mentve: „${name}" — ${formatNumber(Number(data.total))} címzett.` +
@@ -132,6 +160,8 @@ export default function QueueBar({
       else next[account.id] = defaultLimit(account);
       return next;
     });
+
+  const allKeys = files?.files.map((file) => file.key) ?? [];
 
   const scope = selectedIds.length
     ? `${formatNumber(selectedIds.length)} kijelölt cég`
@@ -296,9 +326,77 @@ export default function QueueBar({
             </div>
           </fieldset>
 
+          <fieldset className="space-y-1.5">
+            <legend className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+              Csatolmányok
+            </legend>
+            {files?.files.length ? (
+              <>
+                <div className="flex flex-wrap gap-2">
+                  {files.files.map((file) => {
+                    const on = (picked ?? allKeys).includes(file.key);
+                    return (
+                      <label
+                        key={file.key}
+                        title={
+                          file.scope === "közös"
+                            ? "Minden levélre felkerül."
+                            : `Csak a(z) ${file.scope} nyelvű levelekre kerül fel.`
+                        }
+                        className={`flex max-w-full items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs ${
+                          on
+                            ? "border-emerald-500 text-emerald-200"
+                            : "border-[var(--border)] text-[var(--muted)]"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={on}
+                          onChange={() =>
+                            setPicked(
+                              on
+                                ? (picked ?? allKeys).filter(
+                                    (key) => key !== file.key,
+                                  )
+                                : [...(picked ?? allKeys), file.key],
+                            )
+                          }
+                          className="size-4 shrink-0 accent-emerald-500"
+                        />
+                        <span className="min-w-0 break-all">{file.name}</span>
+                        <span className="shrink-0 whitespace-nowrap text-[11px] text-[var(--muted)]">
+                          {fileSize(file.bytes)}
+                          {file.scope === "közös" ? "" : ` · csak ${file.scope}`}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-[var(--muted)]">
+                  {files.remote
+                    ? "A fájlok a küldő gépen vannak, onnan mennek — itt csak kiválasztod őket. "
+                    : ""}
+                  {picked && !picked.length
+                    ? "Válassz legalább egyet: csatolmány nélküli küldés queue-ból nem megy."
+                    : ""}
+                </p>
+              </>
+            ) : (
+              <p className="text-xs text-amber-300">
+                {files?.remote
+                  ? "A küldő gép még nem tette közzé a csatolmányai listáját — indítsd el a lokális szervert. Így mentve a queue minden csatolmányt visz, ami küldéskor a gépen van."
+                  : "Nincs fájl az attachments mappában — a levelek csatolmány nélkül mennek."}
+              </p>
+            )}
+          </fieldset>
+
           <button
             type="submit"
-            disabled={busy || !Object.keys(bound).length}
+            disabled={
+              busy ||
+              !Object.keys(bound).length ||
+              Boolean(picked && !picked.length)
+            }
             className={button("primary")}
           >
             {busy ? "Mentés…" : "Queue mentése"}

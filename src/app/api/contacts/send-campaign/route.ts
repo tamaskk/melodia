@@ -8,7 +8,8 @@ import {
   stopCampaign,
 } from "@/lib/sendCampaign";
 import { ensureAccounts, publicAccounts } from "@/lib/accounts";
-import { attachmentsDir, listAttachments } from "@/lib/attachments";
+import { attachmentsDir } from "@/lib/attachments";
+import { availableAttachments } from "@/lib/attachmentIndex";
 import { isMailerReady, verifyMailer } from "@/lib/mailer";
 import { createLogger } from "@/lib/logger";
 
@@ -18,10 +19,7 @@ const log = createLogger("api:kuldes");
 
 export async function GET() {
   await ensureAccounts();
-  const [hu, en] = await Promise.all([
-    listAttachments("hu"),
-    listAttachments("en"),
-  ]);
+  const attachments = await availableAttachments();
   return NextResponse.json({
     // Fiókonként egy állapot: ebből látszik, melyik fut és hol tart.
     accounts: publicAccounts(),
@@ -32,23 +30,11 @@ export async function GET() {
     attachments: {
       dir: attachmentsDir(),
       // Egy lista minden fájlról; a "scope" mondja meg, kinek mehet.
-      files: [
-        ...hu.files.map((file) => ({
-          key: file.key ?? file.filename,
-          name: file.filename,
-          bytes: file.bytes,
-          scope: file.scope,
-        })),
-        ...en.files
-          .filter((file) => file.scope === "en")
-          .map((file) => ({
-            key: file.key ?? `en/${file.filename}`,
-            name: file.filename,
-            bytes: file.bytes,
-            scope: file.scope,
-          })),
-      ],
-      warning: hu.warning ?? en.warning,
+      files: attachments.files,
+      warning: attachments.warning,
+      // Telepített példányon ez a küldő gép közzétett jegyzéke.
+      remote: attachments.remote,
+      updatedAt: attachments.updatedAt,
     },
   });
 }
