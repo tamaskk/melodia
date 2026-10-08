@@ -229,6 +229,12 @@ export default function QueuesPanel() {
                       ? ` · várható vége: ${dayLabel(queue.finishDay).date}`
                       : ""}
                   </p>
+                  <p className="break-all text-xs text-[var(--muted)]">
+                    Csatolmány:{" "}
+                    {queue.attachments
+                      ? queue.attachments.join(", ")
+                      : "minden, ami küldéskor a küldő gép mappájában van"}
+                  </p>
                   {queue.status === "varakozik" ? (
                     <p className="text-xs text-[var(--muted)]">
                       A lokális szerver indítja el, 7 és 19 óra között, a futás

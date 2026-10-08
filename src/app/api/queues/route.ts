@@ -9,6 +9,7 @@ import {
   startQueue,
   stopQueue,
 } from "@/lib/sendQueues";
+import { availableAttachments } from "@/lib/attachmentIndex";
 import type { ContactFilters } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -21,7 +22,10 @@ export async function GET(request: NextRequest) {
   try {
     await ensureAccounts();
     if (request.nextUrl.searchParams.get("brief") === "1") {
-      return NextResponse.json({ queues: await listQueueNames() });
+      return NextResponse.json({
+        queues: await listQueueNames(),
+        attachments: await availableAttachments(),
+      });
     }
     return NextResponse.json({
       ...(await queueOverview()),
@@ -52,6 +56,7 @@ export async function POST(request: NextRequest) {
       minMinutes?: unknown;
       maxMinutes?: unknown;
       runDate?: unknown;
+      attachments?: unknown;
     };
 
     if (body.action === "create") {

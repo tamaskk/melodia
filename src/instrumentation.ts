@@ -42,6 +42,9 @@ export async function register() {
     log.error("az automatikus szinkron nem indult", (error as Error).message);
   }
 
+  // A telepített példány ebből a jegyzékből kínálja a csatolmányokat.
+  void (await import("@/lib/attachmentIndex")).publishAttachments();
+
   // Queue-ütemező: 10 percenként felveszi az esedékes queue-kat (csak lokálisan).
   const { startQueueRunner } = await import("@/lib/sendQueues");
   log.info(

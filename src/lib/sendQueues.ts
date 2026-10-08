@@ -8,6 +8,7 @@
  */
 import { ObjectId, type Filter } from "mongodb";
 import { ensureAccounts, getAccount, listAccounts } from "./accounts";
+import { publishAttachments } from "./attachmentIndex";
 import type { MailProvider } from "./accountStore";
 import { listContactIds } from "./contacts";
 import { createLogger } from "./logger";
@@ -62,6 +63,11 @@ interface QueueDoc {
   maxMinutes: number;
   /** Ettől a naptól indulhat (`ÉÉÉÉ-HH-NN`, a feladó naptára szerint). */
   runDate: string;
+  /**
+   * A kiválasztott csatolmányok kulcsai (`CV.pdf`, `en/Letter.pdf`). `null`:
+   * minden, ami küldéskor a küldő gép mappájában van.
+   */
+  attachments?: string[] | null;
   status: QueueStatus;
   /** Mikor töltötte be az ütemező — egy queue csak egyszer töltődik be. */
   loadedAt?: string | null;
@@ -96,6 +102,8 @@ export interface QueueInfo {
   /** Várhatóan ezen a napon fogy el, ha fut; `null`, ha a naptáron túl. */
   finishDay: string | null;
   runDate: string;
+  /** A kiválasztott csatolmányok; `null` = minden. */
+  attachments: string[] | null;
   status: QueueStatus;
   loadedAt: string | null;
   note: string | null;
@@ -150,6 +158,7 @@ export async function createQueue(input: {
   minMinutes?: unknown;
   maxMinutes?: unknown;
   runDate?: unknown;
+  attachments?: unknown;
 }): Promise<{
   id: string;
   total: number;
@@ -171,6 +180,23 @@ export async function createQueue(input: {
   }
   if (runDate < today) {
     throw new Error("A futás napja nem lehet a múltban.");
+  }
+
+  // Hiányzó mező = minden csatolmány. Üres lista nem menthető: a küldő az
+  // üreset "mind"-nek érti, így csatolmány nélkül úgysem menne.
+  const attachments = Array.isArray(input.attachments)
+    ? [
+        ...new Set(
+          input.attachments.filter(
+            (key): key is string => typeof key === "string" && key.length > 0,
+          ),
+        ),
+      ]
+    : null;
+  if (attachments && !attachments.length) {
+    throw new Error(
+      "Válassz legalább egy csatolmányt — csatolmány nélküli küldés queue-ból nem megy.",
+    );
   }
 
   const accounts: QueueAccount[] = [];
@@ -249,6 +275,7 @@ export async function createQueue(input: {
     minMinutes,
     maxMinutes: Math.max(minMinutes, clamp(input.maxMinutes, 1, 240, 20)),
     runDate,
+    attachments,
     status: "varakozik",
     loadedAt: null,
     note: null,
@@ -493,6 +520,7 @@ export async function queueOverview(): Promise<QueueOverview> {
       }),
       finishDay: live && remaining ? plan.finishDay : null,
       runDate: doc.runDate,
+      attachments: doc.attachments ?? null,
       status: doc.status,
       loadedAt: doc.loadedAt ?? null,
       note: doc.note ?? null,
@@ -603,6 +631,7 @@ async function launch(
       windowTo: QUEUE_WINDOW_TO,
       ignoreWindow: false,
       mode: "initial",
+      ...(doc.attachments?.length ? { attachments: doc.attachments } : {}),
       queueId: id,
       keepAlive: true,
     });
@@ -839,7 +868,9 @@ export function startQueueRunner(): boolean {
     // Egy lassú kör ne érje utol a következőt.
     if (timers.__melodiaQueueTicking) return;
     timers.__melodiaQueueTicking = true;
-    void tickQueues()
+    // A telepített példány ebből tudja, miből lehet választani.
+    void publishAttachments()
+      .then(() => tickQueues())
       .then((result) => {
         if (result.started.length || result.finished.length || result.errors.length) {
           log.info("queue-ellenőrzés", {
