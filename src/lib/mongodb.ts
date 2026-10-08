@@ -112,6 +112,15 @@ export async function getContacts(): Promise<Collection<Contact>> {
         { name: "sent_at", partialFilterExpression: { sent: true } },
       ),
 
+      // "Benne van egy queue-ban" szűrő: csak a queue-ba tett sorokat indexeli.
+      collection.createIndex(
+        { queueId: 1 },
+        {
+          name: "in_queue",
+          partialFilterExpression: { queueId: { $type: "string" } },
+        },
+      ),
+
       // A teljes szöveges indexet (company/person/note/role) szándékosan nem
       // építjük: a kereső reguláris kifejezéssel dolgozik, a szöveges index
       // pedig 115 MB volt — az M0 512 MB-os kvótájának ötöde, használat nélkül.

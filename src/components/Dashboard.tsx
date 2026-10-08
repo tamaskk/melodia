@@ -44,6 +44,7 @@ const EMPTY_FILTERS: ContactFilters = {
   sent: "",
   done: "",
   starred: "",
+  inQueue: "",
   sort: "score",
 };
 

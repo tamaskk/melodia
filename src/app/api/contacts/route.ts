@@ -41,6 +41,7 @@ export function filtersFromParams(params: URLSearchParams): ContactFilters {
     sent: (params.get("sent") as ContactFilters["sent"]) ?? undefined,
     done: (params.get("done") as ContactFilters["done"]) ?? undefined,
     starred: (params.get("starred") as ContactFilters["starred"]) ?? undefined,
+    inQueue: (params.get("inQueue") as ContactFilters["inQueue"]) ?? undefined,
     sort: params.get("sort") ?? undefined,
   };
 }

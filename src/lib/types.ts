@@ -121,6 +121,12 @@ export interface Contact {
   peopleSearchResult?: "found" | "none" | null;
   peopleSearchNote?: string | null;
 
+  /**
+   * Melyik kiküldési queue-ban van (`sendQueues.ts`). A queue létrehozása írja,
+   * a törlése veszi le — a szűrő ebből dolgozik, nem a queue-k listájából.
+   */
+  queueId?: string | null;
+
   /** Content fields the user edited by hand; re-import never overwrites them. */
   manualFields?: string[];
 
@@ -224,6 +230,8 @@ export interface ContactFilters {
   sent?: "yes" | "no" | "";
   done?: "yes" | "no" | "";
   starred?: "yes" | "no" | "";
+  /** `yes` = benne van egy kiküldési queue-ban, `no` = egyikben sincs. */
+  inQueue?: "yes" | "no" | "";
   sort?: string;
 }
 
