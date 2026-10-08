@@ -199,6 +199,12 @@ export function buildQuery(filters: ContactFilters): Filter<Contact> {
   bool("done", filters.done);
   bool("starred", filters.starred);
 
+  // Queue-tagság. A `$type` alak a részleges indexet használja; a `null` a
+  // hiányzó mezőre is illeszkedik.
+  if (filters.inQueue === "yes")
+    and.push({ queueId: { $type: "string" } } as Filter<Contact>);
+  if (filters.inQueue === "no") and.push({ queueId: null } as Filter<Contact>);
+
   return and.length ? { $and: and } : {};
 }
 

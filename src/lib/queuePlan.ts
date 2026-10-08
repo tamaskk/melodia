@@ -10,8 +10,8 @@ import type { MailProvider } from "./accountStore";
 import { warmupCap } from "./warmup";
 
 /** A queue-ból indított menetek munkaidő-ablaka (a címzett helyi idejében). */
-export const QUEUE_WINDOW_FROM = 9;
-export const QUEUE_WINDOW_TO = 17;
+export const QUEUE_WINDOW_FROM = 7;
+export const QUEUE_WINDOW_TO = 19;
 
 const ZONE = "Europe/Budapest";
 const DAY_MS = 86_400_000;
@@ -65,12 +65,36 @@ export function isWeekend(key: string): boolean {
 
 /**
  * Ennyi levél fér egy napba pusztán az idő miatt: a munkaidő-ablak hossza
- * osztva az átlagos szünettel. 10–20 perces szünettel ez napi ~33 — hiába
+ * osztva az átlagos szünettel. 10–20 perces szünettel ez napi ~49 — hiába
  * engedne a keret 100-at.
  */
 export function throughputCap(minMinutes: number, maxMinutes: number): number {
   const average = Math.max(1, (minMinutes + maxMinutes) / 2);
   return Math.floor(((QUEUE_WINDOW_TO - QUEUE_WINDOW_FROM) * 60) / average) + 1;
+}
+
+/**
+ * Ennyi levél fér még ki MA, a küldési ablak végéig (a feladó órája szerint).
+ * Az ablak előtt a teljes nap, az ablak után nulla.
+ */
+export function remainingToday(
+  now: Date,
+  minMinutes: number,
+  maxMinutes: number,
+): number {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: ZONE,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  const value = (type: string) =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const minute = value("hour") * 60 + value("minute");
+  const left = QUEUE_WINDOW_TO * 60 - Math.max(minute, QUEUE_WINDOW_FROM * 60);
+  if (left <= 0) return 0;
+  const average = Math.max(1, (minMinutes + maxMinutes) / 2);
+  return Math.floor(left / average) + 1;
 }
 
 /**
@@ -86,13 +110,15 @@ export function planQueue(
     accounts: PlanAccount[];
     minMinutes: number;
     maxMinutes: number;
+    /** A mai napon már csak ennyi fér ki (a nap hátralévő részébe). */
+    today?: { day: string; cap: number };
   },
   days: string[],
   used: Map<string, Map<string, number>>,
 ): QueuePlan {
   const cells = new Map<string, Map<string, number>>();
   const totals = new Map<string, number>();
-  const perDay = throughputCap(input.minMinutes, input.maxMinutes);
+  const fullDay = throughputCap(input.minMinutes, input.maxMinutes);
   // Aki még nem küldött, annak a felfuttatása az első tervezett napján indul.
   const firstSend = new Map(
     input.accounts.map((account) => [account.id, account.firstSendAt]),
@@ -105,6 +131,8 @@ export function planQueue(
     if (!remaining) break;
     if (isWeekend(day)) continue;
     const date = noon(day);
+    const perDay =
+      input.today?.day === day ? Math.min(fullDay, input.today.cap) : fullDay;
 
     for (const account of input.accounts) {
       if (!remaining) break;

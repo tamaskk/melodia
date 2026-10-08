@@ -46,7 +46,15 @@ export async function register() {
   void (await import("@/lib/attachmentIndex")).publishAttachments();
 
   // Queue-ütemező: 10 percenként felveszi az esedékes queue-kat (csak lokálisan).
-  const { startQueueRunner } = await import("@/lib/sendQueues");
+  const { startQueueRunner, syncQueueMembership } = await import(
+    "@/lib/sendQueues"
+  );
+  // Csak a küldő gépen: a telepített példány minden hidegindításnál lefuttatná.
+  if (!process.env.VERCEL) {
+    void syncQueueMembership().catch((error: Error) =>
+      log.warn(`queue-tagság pótlása nem sikerült: ${error.message}`),
+    );
+  }
   log.info(
     startQueueRunner()
       ? "queue-ütemező fut: 10 percenként, indítás 7 és 19 óra között"

@@ -220,8 +220,9 @@ export default function QueueBar({
         >
           <p className="text-xs text-[var(--muted)]">
             Bekerül: {scope}. A lista rögzített — aki most benne van, az kap
-            levelet, a később felvett cégek nem. A queue a futás napján (üresen:
-            ma) magától elindul a lokális szerveren, 7 és 19 óra között.
+            levelet, a később felvett cégek nem. A queue a futás napján (üresen: ma)
+            indul a lokális szerveren, 7 és 19 óra között, és csak aznap fut:
+            ami nem megy ki, visszakerül a listába.
           </p>
           <div className="flex flex-wrap items-end gap-3">
             <label className="space-y-1">

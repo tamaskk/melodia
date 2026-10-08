@@ -225,10 +225,13 @@ export default function QueuesPanel() {
                     {formatNumber(queue.total)} összesen · szünet{" "}
                     {queue.minMinutes}–{queue.maxMinutes} perc · futás napja:{" "}
                     {dayLabel(queue.runDate).date}
-                    {queue.finishDay
-                      ? ` · várható vége: ${dayLabel(queue.finishDay).date}`
-                      : ""}
                   </p>
+                  {queue.overflow ? (
+                    <p className="text-xs text-amber-300">
+                      Ebből várhatóan {formatNumber(queue.overflow)} nem fér ki
+                      a futás napján — ami nem megy ki, visszakerül a listába.
+                    </p>
+                  ) : null}
                   <p className="break-all text-xs text-[var(--muted)]">
                     Csatolmány:{" "}
                     {queue.attachments
@@ -237,8 +240,8 @@ export default function QueuesPanel() {
                   </p>
                   {queue.status === "varakozik" ? (
                     <p className="text-xs text-[var(--muted)]">
-                      A lokális szerver indítja el, 7 és 19 óra között, a futás
-                      napján vagy utána — 10 percenként ellenőriz.
+                      A lokális szerver indítja el a futás napján, 7 és 19 óra
+                      között. Ami aznap nem megy ki, visszakerül a listába.
                     </p>
                   ) : null}
                   {queue.note ? (
@@ -305,7 +308,7 @@ export default function QueuesPanel() {
                 (account) => account.dailyLimit > queue.perDayByTime,
               ) ? (
                 <p className="mt-2 text-xs text-amber-300">
-                  {queue.minMinutes}–{queue.maxMinutes} perces szünettel a 9–17
+                  {queue.minMinutes}–{queue.maxMinutes} perces szünettel a 7–19
                   órás ablakba fiókonként legfeljebb ~{queue.perDayByTime} levél
                   fér egy nap — a nagyobb napi keret ettől nem telik be.
                 </p>

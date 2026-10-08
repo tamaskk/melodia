@@ -33,6 +33,7 @@ import { ObjectId } from "mongodb";
 import { getContacts, getDb } from "./mongodb";
 import { followUpDraft, isFollowUpDue } from "./followup";
 import { firstOutgoingFrom, originalOutgoing } from "./mailStore";
+import { QUEUE_WINDOW_FROM, QUEUE_WINDOW_TO } from "./queuePlan";
 import { warmupCap, warmupLabel } from "./warmup";
 import {
   alreadyContacted,
@@ -173,11 +174,6 @@ export interface CampaignOptions {
   cvLink?: boolean;
   /** Melyik queue-ból indult (`sendQueues.ts`). */
   queueId?: string;
-  /**
-   * Igaz: a napi keret elfogyásakor a menet nem ér véget, hanem megvárja a
-   * következő napot. A queue-k így maguktól végigmennek.
-   */
-  keepAlive?: boolean;
 }
 
 const SKIP_LABEL: Record<SkipReason, string> = {
@@ -563,7 +559,15 @@ export async function resumeCampaigns(): Promise<number> {
       const runner = runnerFor(account);
       if (runner.running) continue;
 
-      runner.options = doc.options;
+      // A queue-ból indult menet a mostani queue-ablakkal folytat — így az
+      // ablak átállítása a már futó queue-kra is érvényes, nem csak az újakra.
+      runner.options = doc.options.queueId
+        ? {
+            ...doc.options,
+            windowFrom: QUEUE_WINDOW_FROM,
+            windowTo: QUEUE_WINDOW_TO,
+          }
+        : doc.options;
       runner.queue = doc.queue ?? [];
       runner.dayStamp = doc.dayStamp ?? new Date().toDateString();
       runner.stopRequested = false;
@@ -578,8 +582,8 @@ export async function resumeCampaigns(): Promise<number> {
         nextAt: null,
         startedAt: doc.startedAt,
         message: "Folytatás a szerver újraindulása után.",
-        windowFrom: doc.options.windowFrom,
-        windowTo: doc.options.windowTo,
+        windowFrom: runner.options.windowFrom,
+        windowTo: runner.options.windowTo,
         ignoreWindow: doc.options.ignoreWindow,
         testMode: doc.options.testMode ?? false,
         selectedAttachments: doc.options.attachments ?? [],
@@ -1029,19 +1033,6 @@ async function run(runner: Runner): Promise<void> {
     }
 
     resetDailyCounterIfNeeded(runner);
-    if (state.sentToday >= dailyLimitOf(runner) && options.keepAlive) {
-      // Queue-ból indított menet: megvárja a holnapot. Darabokban alszik, hogy
-      // a napváltást észrevegye; a leállítás azonnal felébreszti.
-      const midnight = new Date();
-      midnight.setHours(24, 0, 0, 0);
-      state.current = null;
-      state.nextAt = midnight.toISOString();
-      state.message =
-        `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}) — ` +
-        "holnap magától folytatódik.";
-      await sleep(runner, 15 * 60_000);
-      continue;
-    }
     if (state.sentToday >= dailyLimitOf(runner)) {
       state.message =
         `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}${

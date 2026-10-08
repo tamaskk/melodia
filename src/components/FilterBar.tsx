@@ -463,6 +463,18 @@ export default function FilterBar({
               options={YES_NO}
             />
             <Select
+              label="Queue"
+              value={filters.inQueue ?? ""}
+              onChange={(inQueue) =>
+                onChange({ inQueue: inQueue as ContactFilters["inQueue"] })
+              }
+              options={[
+                { value: "", label: "Mind" },
+                { value: "yes", label: "Benne van" },
+                { value: "no", label: "Nincs benne" },
+              ]}
+            />
+            <Select
               label="Rendezés"
               value={filters.sort ?? "score"}
               onChange={(sort) => onChange({ sort })}

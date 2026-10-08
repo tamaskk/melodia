@@ -18,6 +18,7 @@ import {
   dayKeys,
   isWeekend,
   planQueue,
+  remainingToday,
   QUEUE_WINDOW_FROM,
   QUEUE_WINDOW_TO,
   throughputCap,
@@ -40,8 +41,6 @@ const MAX_CONTACTS = 5000;
 /** A naptár: ennyi nap visszafelé és előre (a mai nappal együtt). */
 const PAST_DAYS = 7;
 const FUTURE_DAYS = 21;
-/** Indításkor ennyi napra előre osztjuk szét a címzetteket. */
-const SPLIT_HORIZON_DAYS = 365;
 
 interface QueueAccount {
   accountId: string;
@@ -69,6 +68,10 @@ interface QueueDoc {
    */
   attachments?: string[] | null;
   status: QueueStatus;
+  /** Eredetileg ennyi címzettel készült (a ki nem ment címzettek lezáráskor kikerülnek). */
+  planned?: number;
+  /** Lezáráskor ennyi címzett került vissza a listába, mert aznap nem ment ki. */
+  released?: number;
   /** Mikor töltötte be az ütemező — egy queue csak egyszer töltődik be. */
   loadedAt?: string | null;
   /** Emberi mondat az állapot mellé (pl. miért állt meg). */
@@ -99,8 +102,10 @@ export interface QueueInfo {
     /** A fiók mással foglalt (másik queue vagy kézi indítás). */
     busy: boolean;
   }[];
-  /** Várhatóan ezen a napon fogy el, ha fut; `null`, ha a naptáron túl. */
-  finishDay: string | null;
+  /** Várhatóan ennyi nem fér ki a futás napján — ezek visszakerülnek a listába. */
+  overflow: number;
+  /** Lezáráskor ennyi került vissza a listába. */
+  released: number;
   runDate: string;
   /** A kiválasztott csatolmányok; `null` = minden. */
   attachments: string[] | null;
@@ -180,6 +185,16 @@ export async function createQueue(input: {
   }
   if (runDate < today) {
     throw new Error("A futás napja nem lehet a múltban.");
+  }
+  if (isWeekend(runDate)) {
+    throw new Error(
+      "Hétvégén nem megy ki levél — válassz hétköznapot a futás napjának.",
+    );
+  }
+  if (runDate === today && senderHour(new Date()) >= START_UNTIL_HOUR) {
+    throw new Error(
+      `Ma ${START_UNTIL_HOUR} óra után már nem indul queue — válassz későbbi napot.`,
+    );
   }
 
   // Hiányzó mező = minden csatolmány. Üres lista nem menthető: a küldő az
@@ -276,12 +291,18 @@ export async function createQueue(input: {
     maxMinutes: Math.max(minMinutes, clamp(input.maxMinutes, 1, 240, 20)),
     runDate,
     attachments,
+    planned: fresh.length,
     status: "varakozik",
     loadedAt: null,
     note: null,
     createdAt: new Date().toISOString(),
   };
   const result = await (await queues()).insertOne(doc);
+  // A sorokra is ráírjuk, hogy a lista szűrni tudjon rá.
+  await (await getContacts()).updateMany(
+    { _id: members(fresh) } as Filter<Contact>,
+    { $set: { queueId: result.insertedId.toString() } },
+  );
   log.info(`új queue: ${doc.name} — ${fresh.length} címzett`, {
     fiokok: accounts.map((account) => account.accountId),
     kihagyva: taken.size,
@@ -292,6 +313,29 @@ export async function createQueue(input: {
     skipped: taken.size,
     skippedIn,
   };
+}
+
+/**
+ * A queue-tagság pótlása a sorokon. Induláskor fut egyszer: ha egy queue-t
+ * olyan példány hozott létre, amely még nem jelölte meg a tagjait (régebbi
+ * telepítés), a „Queue" szűrő enélkül nem találná meg őket.
+ */
+export async function syncQueueMembership(): Promise<number> {
+  const contacts = await getContacts();
+  let fixed = 0;
+  const docs = await (await queues())
+    .find({}, { projection: { contactIds: 1 } })
+    .toArray();
+  for (const doc of docs) {
+    const id = doc._id.toString();
+    const result = await contacts.updateMany(
+      { _id: members(doc.contactIds), queueId: { $ne: id } } as Filter<Contact>,
+      { $set: { queueId: id } },
+    );
+    fixed += result.modifiedCount;
+  }
+  if (fixed) log.info(`queue-tagság pótolva ${fixed} soron`);
+  return fixed;
 }
 
 /** Csak név és méret — a kiküldő panel választójához. */
@@ -360,6 +404,10 @@ export async function deleteQueue(id: string): Promise<boolean> {
   for (const accountId of runningFor(id, await activeCampaigns()))
     stopCampaign(accountId);
   await collection.deleteOne({ _id: new ObjectId(id) });
+  await (await getContacts()).updateMany(
+    { queueId: id } as Filter<Contact>,
+    { $set: { queueId: null } },
+  );
   log.warn(`queue törölve: ${doc.name}`);
   return true;
 }
@@ -438,7 +486,6 @@ export async function queueOverview(): Promise<QueueOverview> {
   const now = new Date();
   const today = dayKey(now);
   const days = dayKeys(now, -PAST_DAYS, PAST_DAYS + FUTURE_DAYS);
-  const future = days.filter((day) => day >= today);
 
   const collection = await getContacts();
   const [docs, first, active, sent] = await Promise.all([
@@ -474,17 +521,23 @@ export async function queueOverview(): Promise<QueueOverview> {
   const infos: QueueInfo[] = docs.map((doc, index) => {
     const id = doc._id.toString();
     const [remaining, sentCount] = counts[index];
-    // Csak ami tényleg menni fog: a leállított és a kész queue nem tervez,
-    // a várakozó pedig a saját napjától.
-    const live = doc.status === "varakozik" || doc.status === "fut";
+    // Egy queue egyetlen napra szól: csak a saját napjára tervez, és csak
+    // amíg él. Ami abba nem fér bele, az visszakerül a listába.
+    const live =
+      (doc.status === "varakozik" || doc.status === "fut") &&
+      doc.runDate >= today;
     const plan = planQueue(
       {
         remaining: live ? remaining : 0,
         accounts: planAccounts(doc, first),
         minMinutes: doc.minMinutes,
         maxMinutes: doc.maxMinutes,
+        today: {
+          day: today,
+          cap: remainingToday(now, doc.minMinutes, doc.maxMinutes),
+        },
       },
-      future.filter((day) => day >= doc.runDate),
+      [doc.runDate],
       used,
     );
     for (const [accountId, byDay] of plan.cells) {
@@ -499,7 +552,7 @@ export async function queueOverview(): Promise<QueueOverview> {
     return {
       id,
       name: doc.name,
-      total: doc.contactIds.length,
+      total: doc.planned ?? doc.contactIds.length,
       remaining,
       sent: sentCount,
       minMinutes: doc.minMinutes,
@@ -518,7 +571,8 @@ export async function queueOverview(): Promise<QueueOverview> {
             active.has(bound.accountId) && !running.has(bound.accountId),
         };
       }),
-      finishDay: live && remaining ? plan.finishDay : null,
+      overflow: live ? plan.leftover : 0,
+      released: doc.released ?? 0,
       runDate: doc.runDate,
       attachments: doc.attachments ?? null,
       status: doc.status,
@@ -545,8 +599,8 @@ const NOTHING_LEFT = "Ebben a queue-ban már nincs kinek küldeni.";
 
 /**
  * A küldés tényleges elindítása: minden bekötött, éppen szabad fiók elindul a
- * saját részével. A menetek a napi keret elfogyásakor nem állnak le, hanem
- * másnap folytatják — így a queue magától végigmegy.
+ * saját részével. A queue egy napra szól: ami aznap nem megy ki, azt a lezárás
+ * visszateszi a listába (`closeQueue`).
  */
 async function launch(
   id: string,
@@ -601,11 +655,17 @@ async function launch(
       accounts,
       minMinutes: doc.minMinutes,
       maxMinutes: doc.maxMinutes,
+      today: {
+        day: today,
+        cap: remainingToday(now, doc.minMinutes, doc.maxMinutes),
+      },
     },
-    dayKeys(now, 0, SPLIT_HORIZON_DAYS),
+    [today],
     used,
   );
-  // Ami a vizsgált időbe sem fért bele, azt a legnagyobb keretű fiók viszi.
+  // Ami a becslés szerint ma nem fér bele, azt is megpróbáljuk: a legnagyobb
+  // keretű fiók sorának végére kerül. Ami tényleg nem megy ki, lezáráskor
+  // visszakerül a listába.
   if (plan.leftover) {
     const biggest = [...accounts].sort(
       (a, b) => b.dailyLimit - a.dailyLimit,
@@ -633,7 +693,6 @@ async function launch(
       mode: "initial",
       ...(doc.attachments?.length ? { attachments: doc.attachments } : {}),
       queueId: id,
-      keepAlive: true,
     });
     offset += share;
     if ("error" in result) throw new Error(result.error);
@@ -759,84 +818,140 @@ function senderHour(now: Date): number {
 }
 
 export interface TickResult {
-  /** Hamis, ha az ellenőrzés nem futott le (telepített példány vagy éjszaka). */
+  /** Hamis, ha az ellenőrzés nem futott le (telepített példány). */
   ran: boolean;
+  /** Miért nem indult új queue (pl. éjszaka van) — a lezárás ettől még lefut. */
   reason: string | null;
   started: string[];
   finished: string[];
+  /** Lezárt queue-k, amelyekből címzettek kerültek vissza a listába. */
+  released: string[];
   errors: string[];
 }
 
 /**
- * Egy ellenőrző kör: az esedékes, várakozó queue-k betöltése és indítása.
- *
- * Telepített (serverless) példányon és 19–7 óra között nem csinál semmit. Egy
- * queue csak egyszer töltődik be: a betöltés pillanatában `fut` állapotba
- * kerül, és onnan az ütemező többé nem nyúl hozzá — csak lezárja, ha végzett.
+ * A queue lezárása: a még futó küldés leáll, és ami nem ment ki, visszakerül a
+ * listába — kikerül a queue-ból, így később másik queue-ba tehető. A queue-ban
+ * csak az marad, akinek tényleg ment levél.
  */
-export async function tickQueues(now = new Date()): Promise<TickResult> {
-  const idle = (reason: string): TickResult => ({
-    ran: false,
-    reason,
-    started: [],
-    finished: [],
-    errors: [],
-  });
-  if (SERVERLESS) {
-    return idle("Telepített példány — queue csak a lokális szerveren fut.");
-  }
-  const hour = senderHour(now);
-  if (hour < START_FROM_HOUR || hour >= START_UNTIL_HOUR) {
-    return idle(
-      `${START_UNTIL_HOUR} és ${START_FROM_HOUR} óra között nem indul queue.`,
+async function closeQueue(
+  id: string,
+  doc: QueueDoc,
+  why: string,
+  active: Map<string, string | null>,
+): Promise<number> {
+  for (const accountId of runningFor(id, active)) stopCampaign(accountId);
+
+  const contacts = await getContacts();
+  const unsent = (
+    await contacts
+      .find(
+        { _id: members(doc.contactIds), sent: { $ne: true } } as Filter<Contact>,
+        { projection: { _id: 1 } },
+      )
+      .toArray()
+  ).map((contact) => contact._id);
+
+  if (unsent.length) {
+    await contacts.updateMany(
+      { _id: { $in: unsent } } as Filter<Contact>,
+      { $set: { queueId: null } },
     );
   }
+  await (await queues()).updateOne(
+    { _id: new ObjectId(id) },
+    {
+      $pull: { contactIds: { $in: unsent.map(String) } },
+      $set: {
+        status: "kesz",
+        released: unsent.length,
+        note: unsent.length
+          ? `${why} ${unsent.length} cég nem ment ki — visszakerült a listába, másik queue-ba tehető.`
+          : null,
+      },
+    },
+  );
+  log.info(`queue lezárva: ${doc.name} — ${unsent.length} cég vissza a listába`);
+  return unsent.length;
+}
 
-  await ensureAccounts();
-  const collection = await queues();
+/**
+ * Egy ellenőrző kör.
+ *
+ * 1. Lezárás (bármikor): aminek a napja elmúlt, vagy ma már nem küld belőle
+ *    egy fiók sem, az lezárul, a ki nem ment címzettek visszakerülnek a listába.
+ * 2. Betöltés (csak 7 és 19 óra között): a MAI napra szóló, várakozó queue-k.
+ *    Egy queue csak egyszer töltődik be.
+ *
+ * Telepített (serverless) példányon nem csinál semmit.
+ */
+export async function tickQueues(now = new Date()): Promise<TickResult> {
   const result: TickResult = {
     ran: true,
     reason: null,
     started: [],
     finished: [],
+    released: [],
     errors: [],
   };
+  if (SERVERLESS) {
+    return {
+      ...result,
+      ran: false,
+      reason: "Telepített példány — queue csak a lokális szerveren fut.",
+    };
+  }
 
-  // 1. Lezárás: ami `fut`, de már egy fiók sem küld belőle.
+  await ensureAccounts();
+  const collection = await queues();
+  const today = dayKey(now);
   const active = await activeCampaigns();
-  for (const doc of await collection.find({ status: "fut" }).toArray()) {
+  const closed = async (doc: QueueDoc & { _id: ObjectId }, why: string) => {
+    const back = await closeQueue(doc._id.toString(), doc, why, active);
+    if (back) result.released.push(`${doc.name}: ${back} cég vissza`);
+    else result.finished.push(doc.name);
+  };
+
+  // 1/a. Aminek a napja elmúlt: akár futott, akár nem, lezárul.
+  const expired = await collection
+    .find({
+      status: { $in: ["varakozik", "fut", "leallitva"] },
+      runDate: { $lt: today },
+    })
+    .toArray();
+  for (const doc of expired) await closed(doc, "A futás napja véget ért.");
+
+  // 1/b. Ami ma fut, de már egy fiók sem küld belőle (elfogyott a sor vagy a keret).
+  for (const doc of await collection
+    .find({ status: "fut", runDate: today })
+    .toArray()) {
     const id = doc._id.toString();
     if (runningFor(id, active).length) continue;
-    const [remaining, failed] = await Promise.all([
-      (await getContacts()).countDocuments(eligible(doc.contactIds)),
-      campaignRows({ "options.queueId": id, status: "error" }),
-    ]);
+    const failed = await campaignRows({
+      "options.queueId": id,
+      status: "error",
+    });
     if (failed.length) {
       await setStatus(
         id,
         "leallitva",
-        "A küldés hibával megállt — nézd meg a fiók üzenetét a kiküldő panelen.",
+        "A küldés hibával megállt — nézd meg a fiók üzenetét a kiküldő panelen. Ma még visszatehető a sorba; a nap végén a maradék visszakerül a listába.",
       );
       result.errors.push(`${doc.name}: a küldés hibával megállt`);
     } else {
-      await setStatus(
-        id,
-        "kesz",
-        remaining
-          ? `${remaining} cég kimaradt (hiányos levél, vagy a cég már kapott levelet máshonnan).`
-          : null,
-      );
-      result.finished.push(doc.name);
+      await closed(doc, "A mai küldés véget ért.");
     }
   }
 
-  // 2. Betöltés: a mai napra (vagy korábbra) szóló várakozók, sorban.
+  // 2. Betöltés: csak a mai napra szóló várakozók, és csak a küldő nappalán.
+  const hour = senderHour(now);
+  if (hour < START_FROM_HOUR || hour >= START_UNTIL_HOUR) {
+    result.reason = `${START_UNTIL_HOUR} és ${START_FROM_HOUR} óra között nem indul queue.`;
+    return result;
+  }
   const due = await collection
-    .find(
-      { status: "varakozik", runDate: { $lte: dayKey(now) } },
-      { projection: { name: 1 } },
-    )
-    .sort({ runDate: 1, createdAt: 1 })
+    .find({ status: "varakozik", runDate: today }, { projection: { name: 1 } })
+    .sort({ createdAt: 1 })
     .toArray();
   for (const doc of due) {
     try {
@@ -872,10 +987,16 @@ export function startQueueRunner(): boolean {
     void publishAttachments()
       .then(() => tickQueues())
       .then((result) => {
-        if (result.started.length || result.finished.length || result.errors.length) {
+        if (
+          result.started.length ||
+          result.finished.length ||
+          result.released.length ||
+          result.errors.length
+        ) {
           log.info("queue-ellenőrzés", {
             indult: result.started,
             kesz: result.finished,
+            visszakerult: result.released,
             hiba: result.errors,
           });
         } else {
