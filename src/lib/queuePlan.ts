@@ -23,6 +23,10 @@ export interface PlanAccount {
   dailyLimit: number;
   /** A fiók első küldése (felfuttatás kezdete), vagy `null`, ha még nem küldött. */
   firstSendAt: string | null;
+  /** Hamis: a fiókon a felfuttatás ki van kapcsolva. */
+  warmup: boolean;
+  /** A fiók saját napi maximuma kikapcsolt felfuttatásnál, vagy `null`. */
+  dailyMax: number | null;
 }
 
 export interface QueuePlan {
@@ -105,7 +109,10 @@ export function planQueue(
     for (const account of input.accounts) {
       if (!remaining) break;
       const started = firstSend.get(account.id) ?? date.toISOString();
-      const warmup = warmupCap(started, account.provider, date);
+      // Vagy a felfuttatás korlátoz, vagy a fiók saját maximuma — egyszerre egy.
+      const warmup = account.warmup
+        ? warmupCap(started, account.provider, date)
+        : account.dailyMax;
       const taken = used.get(account.id)?.get(day) ?? 0;
       const room =
         Math.min(account.dailyLimit, warmup ?? Infinity, perDay) - taken;

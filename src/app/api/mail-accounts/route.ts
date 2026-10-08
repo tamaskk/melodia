@@ -4,6 +4,7 @@ import {
   addStoredAccount,
   isSecretReady,
   removeStoredAccount,
+  saveAccountSettings,
   type NewAccount,
 } from "@/lib/accountStore";
 import { credential } from "@/lib/env";
@@ -54,6 +55,48 @@ export async function POST(request: NextRequest) {
       { error: (error as Error).message },
       { status: 400 },
     );
+  }
+}
+
+/**
+ * Beállítás: `{ id, warmup?: boolean, dailyMax?: number | null }`.
+ * A `dailyMax` a fiók saját napi maximuma — kikapcsolt felfuttatásnál él.
+ */
+export async function PATCH(request: NextRequest) {
+  try {
+    const body = (await request.json().catch(() => ({}))) as {
+      id?: unknown;
+      warmup?: unknown;
+      dailyMax?: unknown;
+    };
+    const change: { warmup?: boolean; dailyMax?: number | null } = {};
+    if (typeof body.warmup === "boolean") change.warmup = body.warmup;
+    if (body.dailyMax === null) change.dailyMax = null;
+    else if (body.dailyMax !== undefined) {
+      const max = Number(body.dailyMax);
+      if (!Number.isInteger(max) || max < 1 || max > 100) {
+        return NextResponse.json(
+          { error: "A napi maximum 1 és 100 közötti egész szám legyen." },
+          { status: 400 },
+        );
+      }
+      change.dailyMax = max;
+    }
+    if (typeof body.id !== "string" || !Object.keys(change).length) {
+      return NextResponse.json(
+        { error: "A body legyen { id, warmup: true | false } vagy { id, dailyMax: szám | null }." },
+        { status: 400 },
+      );
+    }
+    await accountOverview();
+    const account = getAccount(body.id);
+    if (!account) {
+      return NextResponse.json({ error: "Nincs ilyen fiók." }, { status: 404 });
+    }
+    await saveAccountSettings(account.id, change);
+    return NextResponse.json({ ok: true, id: account.id, ...change });
+  } catch (error) {
+    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
 }
 

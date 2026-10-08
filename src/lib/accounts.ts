@@ -23,9 +23,11 @@
  * ezek az adatbázisban élnek (`accountStore.ts`), és az env-fiókok után jönnek.
  */
 import {
+  accountDailyMax,
   listStoredAccounts,
   loadStoredAccounts,
   storedAccounts,
+  warmupEnabled,
   type MailProvider,
 } from "./accountStore";
 import { credential } from "./env";
@@ -41,6 +43,10 @@ export interface MailAccount {
   provider: MailProvider;
   /** A felületen vették fel (adatbázisban él), nem az env-ből jön. */
   stored: boolean;
+  /** Követi-e a felfuttatást (warmup.ts). Fiókonként kikapcsolható. */
+  warmup: boolean;
+  /** Saját napi maximum kikapcsolt felfuttatásnál; `null` = nincs megadva. */
+  dailyMax: number | null;
   user: string;
   password: string;
   fromName: string;
@@ -64,6 +70,8 @@ function read(suffix: string): MailAccount | null {
     id: user,
     provider: "gmail",
     stored: false,
+    warmup: warmupEnabled(user),
+    dailyMax: accountDailyMax(user),
     user,
     password,
     fromName:
@@ -107,6 +115,8 @@ export function listAccounts(): MailAccount[] {
       id: stored.user,
       provider: stored.provider,
       stored: true,
+      warmup: warmupEnabled(stored.user),
+      dailyMax: accountDailyMax(stored.user),
       user: stored.user,
       password: stored.password,
       fromName:
@@ -151,6 +161,8 @@ export interface AccountOverview {
   fromName: string;
   /** Törölhető a felületről; az env-ből jövő fiók nem. */
   stored: boolean;
+  warmup: boolean;
+  dailyMax: number | null;
   /** Hamis, ha a tárolt jelszó a mostani kulccsal nem fejthető vissza. */
   usable: boolean;
 }
@@ -165,6 +177,8 @@ export async function accountOverview(): Promise<AccountOverview[]> {
     label: account.label,
     fromName: account.fromName,
     stored: account.stored,
+    warmup: account.warmup,
+    dailyMax: account.dailyMax,
     usable: true,
   }));
   const known = new Set(usable.map((account) => account.id));
@@ -177,6 +191,8 @@ export async function accountOverview(): Promise<AccountOverview[]> {
       label: account.label,
       fromName: account.fromName ?? "",
       stored: true,
+      warmup: true,
+      dailyMax: null,
       usable: false,
     }));
   return [...usable, ...broken];

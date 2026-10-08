@@ -68,7 +68,12 @@ const FRESH_MS = 30_000;
 // A `globalThis`-en él, mert a Next a route-okat és az instrumentationt külön
 // modulpéldányba töltheti (lásd a sendCampaign.ts megjegyzését).
 const shared = globalThis as typeof globalThis & {
-  __melodiaStoredAccounts?: { list: StoredAccount[]; at: number };
+  __melodiaStoredAccounts?: {
+    list: StoredAccount[];
+    /** Fiókok, amelyeken a felfuttatás ki van kapcsolva → a saját napi maximumuk. */
+    noWarmup: Map<string, number | null>;
+    at: number;
+  };
 };
 
 function secretKey(): Buffer | null {
@@ -164,10 +169,59 @@ export async function loadStoredAccounts(force = false): Promise<void> {
           `${doc.user}: a jelszó nem fejthető vissza — hiányzik vagy megváltozott a MAIL_SECRET_KEY`,
         );
     }
-    shared.__melodiaStoredAccounts = { list, at: Date.now() };
+    const off = await (await settings())
+      .find({ warmup: false }, { projection: { _id: 0, user: 1, dailyMax: 1 } })
+      .toArray();
+    shared.__melodiaStoredAccounts = {
+      list,
+      noWarmup: new Map(off.map((doc) => [doc.user, doc.dailyMax ?? null])),
+      at: Date.now(),
+    };
   } catch (error) {
     log.warn(`a fiókok betöltése nem sikerült: ${(error as Error).message}`);
   }
+}
+
+interface SettingsDoc {
+  user: string;
+  warmup: boolean;
+  /** Saját napi maximum; csak kikapcsolt felfuttatásnál él. */
+  dailyMax?: number | null;
+}
+
+/**
+ * Fiókonkénti beállítások. Külön gyűjtemény, mert az env-ből jövő fiókoknak
+ * nincs soruk a `mail_accounts`-ban, de beállításuk nekik is lehet.
+ */
+async function settings() {
+  return (await getDb()).collection<SettingsDoc>("mail_account_settings");
+}
+
+/** Követi-e a fiók a felfuttatást. Alapból igen. */
+export function warmupEnabled(user: string): boolean {
+  return !shared.__melodiaStoredAccounts?.noWarmup.has(user);
+}
+
+/**
+ * A fiók saját napi maximuma — a felfuttatás helyett, ha az ki van kapcsolva.
+ * `null`: nincs megadva (ilyenkor csak az indításkor beállított keret él).
+ */
+export function accountDailyMax(user: string): number | null {
+  return shared.__melodiaStoredAccounts?.noWarmup.get(user) ?? null;
+}
+
+/** Csak a megadott mezőt írja: a kapcsoló nem törli a számot, és fordítva. */
+export async function saveAccountSettings(
+  user: string,
+  change: { warmup?: boolean; dailyMax?: number | null },
+): Promise<void> {
+  await (await settings()).updateOne(
+    { user },
+    { $set: { user, ...change }, $setOnInsert: "warmup" in change ? {} : { warmup: true } },
+    { upsert: true },
+  );
+  await loadStoredAccounts(true);
+  log.info(`${user}: beállítás mentve`, change);
 }
 
 /** A betöltött fiókok. Előtte valahol le kell futnia a `loadStoredAccounts`-nak. */

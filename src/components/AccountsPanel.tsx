@@ -97,6 +97,49 @@ export default function AccountsPanel() {
     }
   };
 
+  const saveSetting = async (
+    account: AccountOverview,
+    change: { warmup?: boolean; dailyMax?: number | null },
+    done: string,
+  ) => {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const response = await fetch("/api/mail-accounts", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: account.id, ...change }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Mentési hiba");
+      setMessage(`${account.user}: ${done}`);
+      await load();
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleWarmup = (account: AccountOverview) =>
+    saveSetting(
+      account,
+      { warmup: !account.warmup },
+      `felfuttatás ${account.warmup ? "kikapcsolva" : "bekapcsolva"}.`,
+    );
+
+  /** Üres mező = nincs saját maximum. Csak akkor ment, ha tényleg változott. */
+  const saveMax = (account: AccountOverview, raw: string) => {
+    const dailyMax = raw.trim() ? Number(raw) : null;
+    if (dailyMax === account.dailyMax) return;
+    void saveSetting(
+      account,
+      { dailyMax },
+      dailyMax ? `napi maximum: ${dailyMax}.` : "napi maximum törölve.",
+    );
+  };
+
   const accounts = feed?.accounts ?? [];
   // Amíg nem tudjuk, mi van beállítva, nem riasztunk.
   const blocked =
@@ -158,6 +201,7 @@ export default function AccountsPanel() {
               <th className="px-3 py-2 font-medium">Cím</th>
               <th className="px-3 py-2 font-medium">Feladónév</th>
               <th className="px-3 py-2 font-medium">Típus</th>
+              <th className="px-3 py-2 font-medium">Felfuttatás</th>
               <th className="px-3 py-2" />
             </tr>
           </thead>
@@ -182,6 +226,49 @@ export default function AccountsPanel() {
                   {account.provider === "resend" ? "Resend" : "Gmail"}
                   {account.stored ? "" : " · env-fájlból"}
                 </td>
+                <td className="whitespace-nowrap px-3 py-2">
+                  {account.usable ? (
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={account.warmup}
+                      disabled={busy}
+                      onClick={() => void toggleWarmup(account)}
+                      title={
+                        account.warmup
+                          ? "Új fiókként kezeljük: a napi keret lépcsőzetesen nő"
+                          : "Nincs felfuttatási plafon: a mellette megadott napi max él"
+                      }
+                      className={`h-7 rounded-full border px-3 text-xs transition disabled:opacity-40 ${
+                        account.warmup
+                          ? "border-emerald-500/60 bg-emerald-500/10 text-emerald-200"
+                          : "border-[var(--border)] text-[var(--muted)]"
+                      }`}
+                    >
+                      {account.warmup ? "követi" : "kikapcsolva"}
+                    </button>
+                  ) : null}
+                  {account.usable && !account.warmup ? (
+                    <label className="ml-2 inline-flex items-center gap-1.5 text-xs text-[var(--muted)]">
+                      napi max
+                      <input
+                        // A mentett érték változásakor a mező is frissüljön.
+                        key={account.dailyMax ?? "nincs"}
+                        type="number"
+                        min={1}
+                        max={100}
+                        defaultValue={account.dailyMax ?? ""}
+                        placeholder="—"
+                        disabled={busy}
+                        onBlur={(event) => saveMax(account, event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        className="h-7 w-16 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-2 text-foreground outline-none focus:border-blue-500"
+                      />
+                    </label>
+                  ) : null}
+                </td>
                 <td className="px-3 py-2 text-right">
                   {account.stored ? (
                     <button
@@ -199,7 +286,7 @@ export default function AccountsPanel() {
             {feed && !accounts.length ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-3 py-8 text-center text-[var(--muted)]"
                 >
                   Még nincs küldő fiók.

@@ -399,6 +399,8 @@ function planAccounts(
       provider: account.provider,
       dailyLimit: bound.dailyLimit,
       firstSendAt: first.get(account.id) ?? null,
+      warmup: account.warmup,
+      dailyMax: account.dailyMax,
     });
   }
   return out;
