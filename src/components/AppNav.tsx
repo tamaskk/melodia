@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMailMode } from "@/lib/useMailMode";
 import {
@@ -82,6 +82,7 @@ const MAIL_MODES: [MailMode, string][] = [
  */
 export default function AppNav() {
   const pathname = usePathname();
+  const router = useRouter();
   const [menu, setMenu] = useState<MenuKey | null>(null);
   const [mailMode, chooseMailMode] = useMailMode();
   const [provider, chooseProvider] = useSearchProvider();
@@ -187,6 +188,15 @@ export default function AppNav() {
       </div>
     ) : null;
 
+  const logout = async () => {
+    await fetch("/api/auth", { method: "DELETE" }).catch(() => undefined);
+    router.replace("/login");
+    router.refresh();
+  };
+
+  // A belépő oldalon nincs mit navigálni.
+  if (pathname === "/login") return null;
+
   return (
     <nav className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--background)]/90 backdrop-blur">
       <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-1 px-4 py-2 sm:px-6">
@@ -291,6 +301,14 @@ export default function AppNav() {
                   visz.
                 </p>
               </fieldset>
+
+              <button
+                type="button"
+                onClick={() => void logout()}
+                className="block w-full border-t border-[var(--border)] pt-3 text-left text-sm text-[var(--muted)] transition hover:text-foreground"
+              >
+                Kijelentkezés
+              </button>
             </div>
           ) : null}
         </div>
