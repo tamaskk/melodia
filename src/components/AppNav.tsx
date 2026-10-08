@@ -210,6 +210,9 @@ export default function AppNav() {
         <Link href="/mail" className={linkClass(isActive("/mail"))}>
           Levelezés
         </Link>
+        <Link href="/jobs" className={linkClass(isActive("/jobs"))}>
+          Munkák
+        </Link>
 
         <div className="sm:relative">
           {trigger("sourcing", "Beszerzés", groupActive(SOURCING))}
