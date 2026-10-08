@@ -236,9 +236,9 @@ export default function PeopleSweepPanel({
           </>
         )}
 
-        <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
+        <span className="flex flex-wrap items-center gap-1.5 text-xs text-[var(--muted)]">
           motor:
-          <span className="flex overflow-hidden rounded-lg border border-[var(--border)]">
+          <span className="flex shrink-0 overflow-hidden rounded-lg border border-[var(--border)]">
             {(
               [
                 ["openai", "OpenAI"],
