@@ -15,7 +15,8 @@ import { ImapFlow, type FetchMessageObject, type ListResponse } from "imapflow";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import { credential } from "./env";
 import { createLogger } from "./logger";
-import { mailerConfig } from "./mailer";
+import { ensureAccounts } from "./accounts";
+import { inboxConfig } from "./mailer";
 import { getContacts } from "./mongodb";
 import {
   mailCollection,
@@ -97,7 +98,7 @@ export function syncState(): SyncState {
 }
 
 export function isInboxReady(): boolean {
-  return mailerConfig() !== null;
+  return inboxConfig() !== null;
 }
 
 function domainOf(address: string): string {
@@ -459,7 +460,8 @@ async function download(
 }
 
 async function run(days: number): Promise<void> {
-  const config = mailerConfig();
+  await ensureAccounts();
+  const config = inboxConfig();
   if (!config)
     throw new Error("Nincs Gmail-hozzáférés: GMAIL_USER / GMAIL_APP_PASSWORD.");
 

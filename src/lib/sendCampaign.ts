@@ -120,6 +120,8 @@ export interface CampaignState {
   skipped?: SkipCounts;
   /** Felfuttatási napi plafon (warmup.ts), vagy `null`, ha a fiók túl van rajta. */
   warmupCap?: number | null;
+  /** A queue, amelyből a mostani (vagy legutóbbi) menet indult. */
+  queueId?: string | null;
 }
 
 export interface SkipCounts {
@@ -167,6 +169,13 @@ export interface CampaignOptions {
   mode?: "initial" | "followup";
   /** Csatolmány helyett CV-link (a `CV_URL` beállításból). */
   cvLink?: boolean;
+  /** Melyik queue-ból indult (`sendQueues.ts`). */
+  queueId?: string;
+  /**
+   * Igaz: a napi keret elfogyásakor a menet nem ér véget, hanem megvárja a
+   * következő napot. A queue-k így maguktól végigmennek.
+   */
+  keepAlive?: boolean;
 }
 
 const SKIP_LABEL: Record<SkipReason, string> = {
@@ -567,6 +576,7 @@ export async function resumeCampaigns(): Promise<number> {
         minMinutes: doc.options.minMinutes,
         maxMinutes: doc.options.maxMinutes,
         recent: doc.recent ?? [],
+        queueId: doc.options.queueId ?? null,
       } satisfies Partial<CampaignState>);
 
       for (const id of runner.queue) claimed.set(id, account.id);
@@ -945,12 +955,15 @@ async function ensureFirstSend(runner: Runner): Promise<void> {
       (saved as { firstSendAt?: string | null } | null)?.firstSendAt ??
       (await firstOutgoingFrom(runner.account.user));
   }
-  runner.state.warmupCap = warmupCap(runner.firstSendAt);
+  runner.state.warmupCap = warmupCap(
+    runner.firstSendAt,
+    runner.account.provider,
+  );
 }
 
 /** A tényleges napi keret: a beállított és a felfuttatási plafon közül a kisebb. */
 function dailyLimitOf(runner: Runner): number {
-  const cap = warmupCap(runner.firstSendAt);
+  const cap = warmupCap(runner.firstSendAt, runner.account.provider);
   return cap === null
     ? runner.options.dailyLimit
     : Math.min(runner.options.dailyLimit, cap);
@@ -963,7 +976,9 @@ async function run(runner: Runner): Promise<void> {
   log.info(
     `indul (${account.user}): ${runner.queue.length} címzett a sorban, ` +
       `napi keret ${dailyLimitOf(runner)}${
-        runner.state.warmupCap ? ` (${warmupLabel(runner.firstSendAt)})` : ""
+        runner.state.warmupCap
+          ? ` (${warmupLabel(runner.firstSendAt, account.provider)})`
+          : ""
       }, ` +
       `szünet ${options.minMinutes}-${options.maxMinutes} perc, ` +
       (options.testMode
@@ -991,10 +1006,25 @@ async function run(runner: Runner): Promise<void> {
     }
 
     resetDailyCounterIfNeeded(runner);
+    if (state.sentToday >= dailyLimitOf(runner) && options.keepAlive) {
+      // Queue-ból indított menet: megvárja a holnapot. Darabokban alszik, hogy
+      // a napváltást észrevegye; a leállítás azonnal felébreszti.
+      const midnight = new Date();
+      midnight.setHours(24, 0, 0, 0);
+      state.current = null;
+      state.nextAt = midnight.toISOString();
+      state.message =
+        `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}) — ` +
+        "holnap magától folytatódik.";
+      await sleep(runner, 15 * 60_000);
+      continue;
+    }
     if (state.sentToday >= dailyLimitOf(runner)) {
       state.message =
         `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}${
-          runner.state.warmupCap ? `, ${warmupLabel(runner.firstSendAt)}` : ""
+          runner.state.warmupCap
+            ? `, ${warmupLabel(runner.firstSendAt, account.provider)}`
+            : ""
         }). ` + "Holnap folytatható.";
       log.info(`${account.user}: ${state.message}`);
       break;
@@ -1133,7 +1163,7 @@ async function run(runner: Runner): Promise<void> {
       // A felfuttatás az első sikeres küldéstől számít.
       if (!runner.firstSendAt) {
         runner.firstSendAt = item.at;
-        state.warmupCap = warmupCap(runner.firstSendAt);
+        state.warmupCap = warmupCap(runner.firstSendAt, account.provider);
       }
     }
     state.remaining = runner.queue.length;
@@ -1279,6 +1309,7 @@ export async function startCampaign(
     minMinutes: options.minMinutes,
     maxMinutes: options.maxMinutes,
     recent: [],
+    queueId: options.queueId ?? null,
   } satisfies Partial<CampaignState>);
 
   runner.queue = await buildQueue(runner);

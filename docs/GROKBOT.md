@@ -23,8 +23,8 @@ A 2. rész önállóan is megáll: egy az egyben bemásolható a bot utasítása
 
 - **Kulcs, token, fejléc nem kell.** A mentésnél egyetlen fejléc kötelező:
   `Content-Type: application/json`.
-- Az alap-URL ott van, ahol a Melodia fut (`http://localhost:3000` a saját
-  gépen). A lenti példákban `{BASE}`.
+- Az alap-URL: **`https://melodia-j2db.vercel.app`** (éles, a bot ezt hívja).
+  Saját gépen, fejlesztéshez: `http://localhost:3000`.
 - Minden válasz JSON. Hiba esetén `{ "error": "…" }` jön, magyar szöveggel,
   ami megmondja, mit kell javítani.
 
@@ -104,13 +104,13 @@ Két egyenértékű forma van.
 **a) GET, a szűrők a query-ben:**
 
 ```bash
-curl "{BASE}/api/bot/next?country=HU&size=51-200"
+curl "https://melodia-j2db.vercel.app/api/bot/next?country=HU&size=51-200"
 ```
 
 **b) POST, a szűrők JSON body-ban:**
 
 ```bash
-curl -X POST "{BASE}/api/bot/next" \
+curl -X POST "https://melodia-j2db.vercel.app/api/bot/next" \
   -H "Content-Type: application/json" \
   -d '{"country":"HU","size":"51-200","tag":"prioritas-magas"}'
 ```
@@ -193,7 +193,7 @@ A kutatáshoz fontos mezők:
 ### 1.2 `POST /api/bot/save` — az eredmény mentése
 
 ```bash
-curl -X POST "{BASE}/api/bot/save" \
+curl -X POST "https://melodia-j2db.vercel.app/api/bot/save" \
   -H "Content-Type: application/json" \
   -d '{ "id": "6a84c25e373abedad2f7a31a", "email": "jobs@nixstech.com", … }'
 ```
@@ -339,8 +339,9 @@ Egy mentés legfeljebb **12 embert** vesz át, egy név csak egyszer szerepelhet
   ugyanazt kapják. Egy bot esetén ez nem gond. Több párhuzamos botnál mindegyik
   kapjon saját, rögzített `skip` értéket (0, 1, 2, …), vagy egymást nem fedő
   szűrőt (pl. más-más `country`).
-- **Elérhetőség.** A bot csak akkor éri el az API-t, ha a Melodia olyan címen
-  fut, amit a bot lát. A `localhost:3000` kívülről nem érhető el.
+- **Elérhetőség.** A bot az éles címet (`https://melodia-j2db.vercel.app`)
+  hívja; a `localhost:3000` kívülről nem érhető el. Az első kérés egy
+  hosszabb szünet után lassabb lehet (hidegindítás, néhány másodperc).
 - **Sebesség.** Egy kérés egy cég; az adatbázis lassú hálózaton van, ezért ne
   kérj előre több céget „készletre".
 

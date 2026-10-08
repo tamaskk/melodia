@@ -5,6 +5,7 @@ import { useReportActive } from "./useReportActive";
 import { useStatusPoll } from "./useStatusPoll";
 import { TEST_MODE_LIMIT } from "@/lib/sendWindow";
 import Link from "next/link";
+import QueueBar from "./QueueBar";
 import SendPreview, {
   type PreflightCheck,
   type PreviewItem,
@@ -32,6 +33,7 @@ interface Account {
   id: string;
   user: string;
   label: string;
+  provider?: "gmail" | "resend";
 }
 
 interface CampaignState {
@@ -390,6 +392,15 @@ export default function SendPanel({
             </span>
           ) : null}
         </div>
+      ) : null}
+
+      {accounts.length ? (
+        <QueueBar
+          accounts={accounts}
+          selectedIds={selectedIds}
+          filters={filters}
+          onStarted={() => void refresh()}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2 p-3">
