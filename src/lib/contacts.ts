@@ -204,6 +204,11 @@ export function buildQuery(filters: ContactFilters): Filter<Contact> {
   if (filters.inQueue === "yes")
     and.push({ queueId: { $type: "string" } } as Filter<Contact>);
   if (filters.inQueue === "no") and.push({ queueId: null } as Filter<Contact>);
+  // Egy queue tagjai. A `$type` itt is kell: a részleges index csak így jön szóba.
+  if (filters.queueId)
+    and.push({
+      queueId: { $type: "string", $eq: filters.queueId },
+    } as Filter<Contact>);
 
   return and.length ? { $and: and } : {};
 }

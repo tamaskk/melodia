@@ -338,20 +338,21 @@ export async function syncQueueMembership(): Promise<number> {
   return fixed;
 }
 
-/** Csak név és méret — a kiküldő panel választójához. */
+/** Név, méret és a futás napja — a kiküldő panel választójához és a kontakt paneljéhez. */
 export async function listQueueNames(): Promise<
-  { id: string; name: string; total: number }[]
+  { id: string; name: string; total: number; runDate: string }[]
 > {
   const docs = await (await queues())
-    .aggregate<{ _id: ObjectId; name: string; total: number }>([
+    .aggregate<{ _id: ObjectId; name: string; total: number; runDate: string }>([
       { $sort: { createdAt: 1 } },
-      { $project: { name: 1, total: { $size: "$contactIds" } } },
+      { $project: { name: 1, runDate: 1, total: { $size: "$contactIds" } } },
     ])
     .toArray();
   return docs.map((doc) => ({
     id: doc._id.toString(),
     name: doc.name,
     total: doc.total,
+    runDate: doc.runDate,
   }));
 }
 
