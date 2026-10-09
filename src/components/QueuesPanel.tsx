@@ -355,7 +355,7 @@ function QueueFiles({
           <span className="text-amber-300">
             {available?.remote
               ? "a küldő gép még nem tette közzé a mappája jegyzékét — a levelekkel az megy, ami küldéskor a mappában van"
-              : "nincs fájl az attachments mappában — a levelek csatolmány nélkül mennek"}
+              : "nincs fájl az attachments mappában — csatolmány nélkül nem megy ki levél, a küldés megáll"}
           </span>
         ) : null}
       </div>
