@@ -261,6 +261,134 @@ function QueueMembers({
   );
 }
 
+const EMPTY =
+  "rounded-lg border border-dashed border-[var(--border)] p-6 text-center text-sm text-[var(--muted)]";
+
+/** Lenyitható csoport a queue-k egy fajtájának: cím, darabszám, tartalom. */
+function Group({
+  title,
+  count,
+  open,
+  onToggle,
+  children,
+}: {
+  title: string;
+  count: number;
+  open: boolean;
+  onToggle: (open: boolean) => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <details
+      open={open}
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+      className="group rounded-lg border border-[var(--border)] bg-[var(--surface)]"
+    >
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-base font-semibold [&::-webkit-details-marker]:hidden">
+        <span>
+          {title}{" "}
+          <span className="ml-1 text-sm font-normal text-[var(--muted)]">
+            {formatNumber(count)}
+          </span>
+        </span>
+        <span className="text-xs text-[var(--muted)] transition group-open:rotate-180">
+          ▼
+        </span>
+      </summary>
+      <div className="space-y-3 border-t border-[var(--border)] p-3 sm:p-4">
+        {children}
+      </div>
+    </details>
+  );
+}
+
+/** A queue-k futási nap szerint csoportosítva, a kért sorrendben. */
+function byDay(
+  queues: QueueInfo[],
+  order: "asc" | "desc",
+): [string, QueueInfo[]][] {
+  const days = new Map<string, QueueInfo[]>();
+  for (const queue of queues) {
+    days.set(queue.runDate, [...(days.get(queue.runDate) ?? []), queue]);
+  }
+  return [...days.entries()].sort(([a], [b]) =>
+    order === "asc" ? a.localeCompare(b) : b.localeCompare(a),
+  );
+}
+
+/** „október 12., hétfő" — a naptári nap, időzóna-csúszás nélkül. */
+function longDay(day: string): string {
+  return noon(day).toLocaleDateString("hu-HU", {
+    timeZone: "UTC",
+    month: "long",
+    day: "numeric",
+    weekday: "long",
+  });
+}
+
+/**
+ * Napra bontott lista: a dátum alatt küldő fiókonként egy sor (melyik fiók,
+ * melyik queue-ból), a sor lenyitva a queue teljes kártyáját mutatja.
+ */
+function QueueDays({
+  days,
+  today,
+  card,
+  detail,
+}: {
+  days: [string, QueueInfo[]][];
+  today?: string;
+  card: (queue: QueueInfo) => React.ReactNode;
+  /** A sor végén álló összegzés. */
+  detail: (queue: QueueInfo) => string;
+}) {
+  return (
+    <>
+      {days.map(([day, queues]) => (
+        <div key={day} className="space-y-1.5">
+          <h3 className="text-sm font-semibold">
+            {longDay(day)}
+            {day === today ? (
+              <span className="ml-2 text-xs font-normal text-blue-300">ma</span>
+            ) : null}
+          </h3>
+          {queues.flatMap((queue) =>
+            queue.accounts.map((account) => (
+              <details
+                key={`${queue.id}:${account.accountId}`}
+                className="rounded-lg border border-[var(--border)]"
+              >
+                <summary className="flex cursor-pointer list-none flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden">
+                  <span
+                    className={`min-w-0 break-all font-medium ${account.missing ? "text-red-300" : ""}`}
+                  >
+                    {account.label}
+                    {account.provider === "resend" ? " · Resend" : ""}
+                  </span>
+                  <span className="text-[var(--muted)]">{queue.name}</span>
+                  {queue.status === "leallitva" ? (
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS.leallitva.tone}`}
+                    >
+                      {STATUS.leallitva.label}
+                    </span>
+                  ) : null}
+                  <span className="ml-auto whitespace-nowrap text-xs text-[var(--muted)]">
+                    napi {account.dailyLimit} · {detail(queue)}
+                  </span>
+                </summary>
+                <div className="border-t border-[var(--border)] p-2">
+                  {card(queue)}
+                </div>
+              </details>
+            )),
+          )}
+        </div>
+      ))}
+    </>
+  );
+}
+
 /** A queue-k áttekintése a küldő gép csatolmány-jegyzékével együtt. */
 type Overview = QueueOverview & { attachments?: AttachmentList };
 
@@ -379,6 +507,14 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
   const [data, setData] = useState<Overview | null>(null);
   // Melyik queue címzettlistája van nyitva (egyszerre egy).
   const [membersOf, setMembersOf] = useState<string | null>(null);
+  // Mely csoport van lenyitva — a fél percenkénti frissítés ne csukja vissza.
+  const [open, setOpen] = useState({
+    running: true,
+    planned: false,
+    closed: false,
+  });
+  // A 30 napnál régebben lezárt queue-k is kellenek-e.
+  const [allClosed, setAllClosed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -390,14 +526,17 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
   const load = useCallback(async () => {
     const request = ++requestRef.current;
     try {
-      const response = await fetch("/api/queues", { cache: "no-store" });
+      const response = await fetch(
+        allClosed ? "/api/queues?all=1" : "/api/queues",
+        { cache: "no-store" },
+      );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Betöltési hiba");
       if (request === requestRef.current) setData(body as Overview);
     } catch (caught) {
       if (request === requestRef.current) setError((caught as Error).message);
     }
-  }, []);
+  }, [allClosed]);
 
   useEffect(() => {
     const first = setTimeout(() => void load(), 0);
@@ -502,6 +641,156 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
     );
   };
 
+  // Három csoport: ami most megy, ami még hátravan (a leállított is, mert
+  // visszatehető a sorba), és ami lezárult.
+  const running = queues.filter((queue) => queue.status === "fut");
+  const planned = queues.filter(
+    (queue) => queue.status === "varakozik" || queue.status === "leallitva",
+  );
+  const closed = queues.filter((queue) => queue.status === "kesz");
+
+  /** Egy queue teljes kártyája: állapot, csatolmányok, fiókok, műveletek. */
+  const card = (queue: QueueInfo) => {
+    const state = STATUS[queue.status];
+    return (
+      <div
+        key={queue.id}
+        className="rounded-lg border border-[var(--border)] p-4"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              {queue.name}
+              <span
+                className={`rounded-full border px-2 py-0.5 text-[11px] font-normal ${state.tone}`}
+              >
+                {state.label}
+              </span>
+            </h2>
+            <p className="text-sm text-[var(--muted)]">
+              {formatNumber(queue.remaining)} vár · {formatNumber(queue.sent)}{" "}
+              kiment · {formatNumber(queue.total)} összesen · szünet{" "}
+              {queue.minMinutes}–{queue.maxMinutes} perc · futás napja:{" "}
+              {dayLabel(queue.runDate).date}
+              {queue.weekends ? " · hétvégén is" : ""}
+            </p>
+            {queue.overflow ? (
+              <p className="text-xs text-amber-300">
+                Ebből várhatóan {formatNumber(queue.overflow)} nem fér ki a
+                futás napján — ami nem megy ki, visszakerül a listába.
+              </p>
+            ) : null}
+            <QueueFiles
+              keys={queue.attachments}
+              available={data?.attachments}
+              busy={busy}
+              onChange={
+                queue.status === "kesz"
+                  ? undefined
+                  : (attachments) =>
+                      void act("POST", {
+                        action: "attachments",
+                        id: queue.id,
+                        attachments,
+                      })
+              }
+            />
+            {queue.status === "varakozik" ? (
+              <p className="text-xs text-[var(--muted)]">
+                A lokális szerver indítja el a futás napján, 7 és 19 óra között.
+                Ami aznap nem megy ki, visszakerül a listába.
+              </p>
+            ) : null}
+            {queue.note ? (
+              <p className="text-xs text-amber-300">{queue.note}</p>
+            ) : null}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              aria-expanded={membersOf === queue.id}
+              onClick={() =>
+                setMembersOf((current) =>
+                  current === queue.id ? null : queue.id,
+                )
+              }
+              className={button("secondary")}
+            >
+              Címzettek ({formatNumber(queue.total)}){" "}
+              <span aria-hidden>{membersOf === queue.id ? "▴" : "▾"}</span>
+            </button>
+            {queue.status === "varakozik" || queue.status === "fut" ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() =>
+                  void act("POST", { action: "stop", id: queue.id })
+                }
+                className="h-8 rounded-lg border border-red-500/60 px-3 text-xs text-red-300 transition hover:bg-red-500/10 disabled:opacity-40"
+              >
+                Leállítás
+              </button>
+            ) : null}
+            {queue.status === "leallitva" ? (
+              <button
+                type="button"
+                disabled={busy || !queue.remaining}
+                onClick={() =>
+                  void act("POST", { action: "requeue", id: queue.id })
+                }
+                className={button("primary")}
+              >
+                Vissza a sorba
+              </button>
+            ) : null}
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => remove(queue)}
+              className={button("ghost")}
+            >
+              Törlés
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2">
+          {queue.accounts.map((account) => (
+            <span
+              key={account.accountId}
+              title={account.accountId}
+              className={`rounded-lg border px-2.5 py-1 text-xs ${
+                account.running
+                  ? "border-emerald-500/60 text-emerald-200"
+                  : "border-[var(--border)] text-[var(--muted)]"
+              }`}
+            >
+              {account.label}
+              {account.provider === "resend" ? " · Resend" : ""} · napi{" "}
+              {account.dailyLimit}
+              {account.missing ? " · törölt fiók" : ""}
+              {account.busy ? " · mással foglalt" : ""}
+            </span>
+          ))}
+        </div>
+
+        {queue.accounts.some(
+          (account) => account.dailyLimit > queue.perDayByTime,
+        ) ? (
+          <p className="mt-2 text-xs text-amber-300">
+            {queue.minMinutes}–{queue.maxMinutes} perces szünettel a 7–19 órás
+            ablakba fiókonként legfeljebb ~{queue.perDayByTime} levél fér egy
+            nap — a nagyobb napi keret ettől nem telik be.
+          </p>
+        ) : null}
+
+        {membersOf === queue.id ? (
+          <QueueMembers queueId={queue.id} {...panelOptions} />
+        ) : null}
+      </div>
+    );
+  };
+
   return (
     <div className="mx-auto w-full max-w-[1500px] space-y-6 p-4 sm:p-6">
       <header>
@@ -535,154 +824,80 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
       ) : null}
 
       <section className="space-y-3">
-        {queues.map((queue) => {
-          const state = STATUS[queue.status];
-          return (
-            <div
-              key={queue.id}
-              className="rounded-lg border border-[var(--border)] p-4"
+        <Group
+          title="Jelenleg futó queue-k"
+          count={running.length}
+          open={open.running}
+          onToggle={(value) => setOpen({ ...open, running: value })}
+        >
+          {running.length ? (
+            running.map(card)
+          ) : (
+            <p className={EMPTY}>Most egy queue sem fut.</p>
+          )}
+        </Group>
+
+        <Group
+          title="Tervezett queue-k"
+          count={planned.length}
+          open={open.planned}
+          onToggle={(value) => setOpen({ ...open, planned: value })}
+        >
+          {planned.length ? (
+            <QueueDays
+              days={byDay(planned, "asc")}
+              today={calendar?.today}
+              card={card}
+              detail={(queue) =>
+                `${formatNumber(queue.remaining)} vár · ${formatNumber(queue.total)} összesen`
+              }
+            />
+          ) : (
+            <p className={EMPTY}>
+              Nincs tervezett queue. Újat a Kontaktok oldalon menthetsz.
+            </p>
+          )}
+        </Group>
+
+        <Group
+          title="Lejárt queue-k"
+          count={closed.length + (data?.olderClosed ?? 0)}
+          open={open.closed}
+          onToggle={(value) => setOpen({ ...open, closed: value })}
+        >
+          {closed.length ? (
+            <QueueDays
+              days={byDay(closed, "desc")}
+              today={calendar?.today}
+              card={card}
+              detail={(queue) =>
+                `${formatNumber(queue.sent)} kiment / ${formatNumber(queue.total)}` +
+                (queue.released
+                  ? ` · ${formatNumber(queue.released)} visszakerült a listába`
+                  : "")
+              }
+            />
+          ) : (
+            <p className={EMPTY}>Az utolsó 30 napban nem zárult le queue.</p>
+          )}
+          {data?.olderClosed ? (
+            <button
+              type="button"
+              onClick={() => setAllClosed(true)}
+              className={button("secondary", "sm")}
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="flex items-center gap-2 text-lg font-semibold">
-                    {queue.name}
-                    <span
-                      className={`rounded-full border px-2 py-0.5 text-[11px] font-normal ${state.tone}`}
-                    >
-                      {state.label}
-                    </span>
-                  </h2>
-                  <p className="text-sm text-[var(--muted)]">
-                    {formatNumber(queue.remaining)} vár ·{" "}
-                    {formatNumber(queue.sent)} kiment ·{" "}
-                    {formatNumber(queue.total)} összesen · szünet{" "}
-                    {queue.minMinutes}–{queue.maxMinutes} perc · futás napja:{" "}
-                    {dayLabel(queue.runDate).date}
-                    {queue.weekends ? " · hétvégén is" : ""}
-                  </p>
-                  {queue.overflow ? (
-                    <p className="text-xs text-amber-300">
-                      Ebből várhatóan {formatNumber(queue.overflow)} nem fér ki
-                      a futás napján — ami nem megy ki, visszakerül a listába.
-                    </p>
-                  ) : null}
-                  <QueueFiles
-                    keys={queue.attachments}
-                    available={data?.attachments}
-                    busy={busy}
-                    onChange={
-                      queue.status === "kesz"
-                        ? undefined
-                        : (attachments) =>
-                            void act("POST", {
-                              action: "attachments",
-                              id: queue.id,
-                              attachments,
-                            })
-                    }
-                  />
-                  {queue.status === "varakozik" ? (
-                    <p className="text-xs text-[var(--muted)]">
-                      A lokális szerver indítja el a futás napján, 7 és 19 óra
-                      között. Ami aznap nem megy ki, visszakerül a listába.
-                    </p>
-                  ) : null}
-                  {queue.note ? (
-                    <p className="text-xs text-amber-300">{queue.note}</p>
-                  ) : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    aria-expanded={membersOf === queue.id}
-                    onClick={() =>
-                      setMembersOf((current) =>
-                        current === queue.id ? null : queue.id,
-                      )
-                    }
-                    className={button("secondary")}
-                  >
-                    Címzettek ({formatNumber(queue.total)}){" "}
-                    <span aria-hidden>
-                      {membersOf === queue.id ? "▴" : "▾"}
-                    </span>
-                  </button>
-                  {queue.status === "varakozik" || queue.status === "fut" ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      onClick={() =>
-                        void act("POST", { action: "stop", id: queue.id })
-                      }
-                      className="h-8 rounded-lg border border-red-500/60 px-3 text-xs text-red-300 transition hover:bg-red-500/10 disabled:opacity-40"
-                    >
-                      Leállítás
-                    </button>
-                  ) : null}
-                  {queue.status === "leallitva" ? (
-                    <button
-                      type="button"
-                      disabled={busy || !queue.remaining}
-                      onClick={() =>
-                        void act("POST", { action: "requeue", id: queue.id })
-                      }
-                      className={button("primary")}
-                    >
-                      Vissza a sorba
-                    </button>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => remove(queue)}
-                    className={button("ghost")}
-                  >
-                    Törlés
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 flex flex-wrap gap-2">
-                {queue.accounts.map((account) => (
-                  <span
-                    key={account.accountId}
-                    title={account.accountId}
-                    className={`rounded-lg border px-2.5 py-1 text-xs ${
-                      account.running
-                        ? "border-emerald-500/60 text-emerald-200"
-                        : "border-[var(--border)] text-[var(--muted)]"
-                    }`}
-                  >
-                    {account.label}
-                    {account.provider === "resend" ? " · Resend" : ""} · napi{" "}
-                    {account.dailyLimit}
-                    {account.missing ? " · törölt fiók" : ""}
-                    {account.busy ? " · mással foglalt" : ""}
-                  </span>
-                ))}
-              </div>
-
-              {queue.accounts.some(
-                (account) => account.dailyLimit > queue.perDayByTime,
-              ) ? (
-                <p className="mt-2 text-xs text-amber-300">
-                  {queue.minMinutes}–{queue.maxMinutes} perces szünettel a 7–19
-                  órás ablakba fiókonként legfeljebb ~{queue.perDayByTime} levél
-                  fér egy nap — a nagyobb napi keret ettől nem telik be.
-                </p>
-              ) : null}
-
-              {membersOf === queue.id ? (
-                <QueueMembers queueId={queue.id} {...panelOptions} />
-              ) : null}
-            </div>
-          );
-        })}
-        {data && !queues.length ? (
-          <p className="rounded-lg border border-[var(--border)] p-8 text-center text-sm text-[var(--muted)]">
-            Még nincs queue.
-          </p>
-        ) : null}
+              Összes ({formatNumber(data.olderClosed)} régebbi)
+            </button>
+          ) : allClosed ? (
+            <p className="text-xs text-[var(--muted)]">
+              Minden lezárt queue látszik.
+            </p>
+          ) : (
+            <p className="text-xs text-[var(--muted)]">
+              Az utolsó 30 nap látszik — ennél régebbi lezárt queue nincs.
+            </p>
+          )}
+        </Group>
       </section>
 
       {calendar ? (
