@@ -8,6 +8,7 @@
  * A többi modul szinkron olvas (`storedAccounts`), ezért a lista memóriában
  * van, és a belépési pontok töltik be (`loadStoredAccounts`).
  */
+import type { WarmupStep } from "./warmup";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import nodemailer from "nodemailer";
 import { credential } from "./env";
@@ -72,6 +73,8 @@ const shared = globalThis as typeof globalThis & {
     list: StoredAccount[];
     /** Fiókok, amelyeken a felfuttatás ki van kapcsolva → a saját napi maximumuk. */
     noWarmup: Map<string, number | null>;
+    /** Fiók → saját lépcsősor és kézzel állított kezdés (ami nincs, az alapértelmezés). */
+    warmups: Map<string, AccountWarmup>;
     at: number;
   };
 };
@@ -169,12 +172,28 @@ export async function loadStoredAccounts(force = false): Promise<void> {
           `${doc.user}: a jelszó nem fejthető vissza — hiányzik vagy megváltozott a MAIL_SECRET_KEY`,
         );
     }
-    const off = await (await settings())
-      .find({ warmup: false }, { projection: { _id: 0, user: 1, dailyMax: 1 } })
+    // Fiókonként egy kis sor — mind kell, szűrni nem érdemes.
+    const all = await (
+      await settings()
+    )
+      .find({}, { projection: { _id: 0 } })
       .toArray();
     shared.__melodiaStoredAccounts = {
       list,
-      noWarmup: new Map(off.map((doc) => [doc.user, doc.dailyMax ?? null])),
+      noWarmup: new Map(
+        all
+          .filter((doc) => doc.warmup === false)
+          .map((doc) => [doc.user, doc.dailyMax ?? null]),
+      ),
+      warmups: new Map(
+        all.map((doc) => [
+          doc.user,
+          {
+            steps: doc.warmupSteps?.length ? doc.warmupSteps : null,
+            startAt: doc.warmupStart ?? null,
+          },
+        ]),
+      ),
       at: Date.now(),
     };
   } catch (error) {
@@ -182,11 +201,21 @@ export async function loadStoredAccounts(force = false): Promise<void> {
   }
 }
 
+/** A fiók saját felfuttatása: ami `null`, ott az alapértelmezés él. */
+export interface AccountWarmup {
+  /** Saját lépcsősor; `null` = a szolgáltató alapértelmezése. */
+  steps: WarmupStep[] | null;
+  /** Kézzel állított kezdés (újraindítás); `null` = az első küldéstől számít. */
+  startAt: string | null;
+}
+
 interface SettingsDoc {
   user: string;
   warmup: boolean;
   /** Saját napi maximum; csak kikapcsolt felfuttatásnál él. */
   dailyMax?: number | null;
+  warmupSteps?: WarmupStep[] | null;
+  warmupStart?: string | null;
 }
 
 /**
@@ -210,14 +239,34 @@ export function accountDailyMax(user: string): number | null {
   return shared.__melodiaStoredAccounts?.noWarmup.get(user) ?? null;
 }
 
+/** A fiók saját lépcsősora és kézzel állított kezdése. */
+export function accountWarmup(user: string): AccountWarmup {
+  return (
+    shared.__melodiaStoredAccounts?.warmups.get(user) ?? {
+      steps: null,
+      startAt: null,
+    }
+  );
+}
+
 /** Csak a megadott mezőt írja: a kapcsoló nem törli a számot, és fordítva. */
 export async function saveAccountSettings(
   user: string,
-  change: { warmup?: boolean; dailyMax?: number | null },
+  change: {
+    warmup?: boolean;
+    dailyMax?: number | null;
+    warmupSteps?: WarmupStep[] | null;
+    warmupStart?: string | null;
+  },
 ): Promise<void> {
-  await (await settings()).updateOne(
+  await (
+    await settings()
+  ).updateOne(
     { user },
-    { $set: { user, ...change }, $setOnInsert: "warmup" in change ? {} : { warmup: true } },
+    {
+      $set: { user, ...change },
+      $setOnInsert: "warmup" in change ? {} : { warmup: true },
+    },
     { upsert: true },
   );
   await loadStoredAccounts(true);

@@ -22,8 +22,11 @@
  * Emellett a felületen (`/accounts`) is felvehető fiók — Gmail vagy Resend —,
  * ezek az adatbázisban élnek (`accountStore.ts`), és az env-fiókok után jönnek.
  */
+import { getDb } from "./mongodb";
+import { warmupStatus, type WarmupStatus, type WarmupStep } from "./warmup";
 import {
   accountDailyMax,
+  accountWarmup,
   listStoredAccounts,
   loadStoredAccounts,
   storedAccounts,
@@ -47,6 +50,10 @@ export interface MailAccount {
   warmup: boolean;
   /** Saját napi maximum kikapcsolt felfuttatásnál; `null` = nincs megadva. */
   dailyMax: number | null;
+  /** Saját felfuttatási lépcsősor; `null` = a szolgáltató alapértelmezése. */
+  warmupSteps: WarmupStep[] | null;
+  /** Kézzel állított kezdés (újraindítás); `null` = az első küldéstől számít. */
+  warmupStart: string | null;
   user: string;
   password: string;
   fromName: string;
@@ -74,6 +81,8 @@ function read(suffix: string): MailAccount | null {
     stored: false,
     warmup: warmupEnabled(user),
     dailyMax: accountDailyMax(user),
+    warmupSteps: accountWarmup(user).steps,
+    warmupStart: accountWarmup(user).startAt,
     user,
     password,
     fromName:
@@ -119,6 +128,8 @@ export function listAccounts(): MailAccount[] {
       stored: true,
       warmup: warmupEnabled(stored.user),
       dailyMax: accountDailyMax(stored.user),
+      warmupSteps: accountWarmup(stored.user).steps,
+      warmupStart: accountWarmup(stored.user).startAt,
       user: stored.user,
       password: stored.password,
       fromName:
@@ -165,6 +176,8 @@ export interface AccountOverview {
   stored: boolean;
   warmup: boolean;
   dailyMax: number | null;
+  /** Hol tart a felfuttatásban, és milyen lépcsőkön megy. */
+  warmupStatus: WarmupStatus;
   /** Hamis, ha a tárolt jelszó a mostani kulccsal nem fejthető vissza. */
   usable: boolean;
 }
@@ -172,6 +185,17 @@ export interface AccountOverview {
 /** A fiókok oldalának: minden fiók, jelszó nélkül — a nem használhatók is. */
 export async function accountOverview(): Promise<AccountOverview[]> {
   await loadStoredAccounts(true);
+  // A felfuttatás kezdete: a kiküldő menetek mentett első küldése.
+  const first = new Map(
+    (
+      await (
+        await getDb()
+      )
+        .collection<{ accountId: string; firstSendAt?: string }>("campaigns")
+        .find({}, { projection: { _id: 0, accountId: 1, firstSendAt: 1 } })
+        .toArray()
+    ).map((doc) => [doc.accountId, doc.firstSendAt ?? null]),
+  );
   const usable = listAccounts().map((account) => ({
     id: account.id,
     provider: account.provider,
@@ -181,6 +205,12 @@ export async function accountOverview(): Promise<AccountOverview[]> {
     stored: account.stored,
     warmup: account.warmup,
     dailyMax: account.dailyMax,
+    warmupStatus: warmupStatus(
+      account.warmupStart ?? first.get(account.id) ?? null,
+      Boolean(account.warmupStart),
+      account.provider,
+      account.warmupSteps,
+    ),
     usable: true,
   }));
   const known = new Set(usable.map((account) => account.id));
@@ -195,6 +225,7 @@ export async function accountOverview(): Promise<AccountOverview[]> {
       stored: true,
       warmup: true,
       dailyMax: null,
+      warmupStatus: warmupStatus(null, false, account.provider, null),
       usable: false,
     }));
   return [...usable, ...broken];
