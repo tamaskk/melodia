@@ -58,6 +58,7 @@ export default function QueueBar({
   const [bound, setBound] = useState<Record<string, number>>({});
   // Üresen a mai nap: a szerver a feladó naptára szerint tölti ki.
   const [runDate, setRunDate] = useState("");
+  const [weekends, setWeekends] = useState(false);
   const [files, setFiles] = useState<AttachmentFeed | null>(null);
   // `null` = nem nyúltál hozzá: minden megy, a később betett fájlok is.
   const [picked, setPicked] = useState<string[] | null>(null);
@@ -121,6 +122,7 @@ export default function QueueBar({
       minMinutes,
       maxMinutes,
       runDate,
+      weekends,
       // Érintetlenül nem küldünk listát: az "minden csatolmány"-t jelent.
       ...(picked ? { attachments: picked } : {}),
     });
@@ -242,6 +244,18 @@ export default function QueueBar({
                 onChange={(event) => setRunDate(event.target.value)}
                 className={`${field("sm")} w-40`}
               />
+            </label>
+            <label
+              title="Szombaton és vasárnap is küld, ugyanúgy 7 és 19 óra között, a címzett helyi idejében. Enélkül a futás napja csak hétköznap lehet."
+              className="flex h-8 items-center gap-2 text-xs"
+            >
+              <input
+                type="checkbox"
+                checked={weekends}
+                onChange={(event) => setWeekends(event.target.checked)}
+                className="size-4 accent-emerald-500"
+              />
+              Hétvégén is
             </label>
             <label className="space-y-1">
               <span className="block text-[11px] uppercase tracking-wider text-[var(--muted)]">

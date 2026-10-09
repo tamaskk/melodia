@@ -112,6 +112,8 @@ export function planQueue(
     maxMinutes: number;
     /** A mai napon már csak ennyi fér ki (a nap hátralévő részébe). */
     today?: { day: string; cap: number };
+    /** Igaz: a queue hétvégén is küld, a hétvégi napok is tervezhetők. */
+    weekends?: boolean;
   },
   days: string[],
   used: Map<string, Map<string, number>>,
@@ -129,7 +131,7 @@ export function planQueue(
 
   for (const day of days) {
     if (!remaining) break;
-    if (isWeekend(day)) continue;
+    if (isWeekend(day) && !input.weekends) continue;
     const date = noon(day);
     const perDay =
       input.today?.day === day ? Math.min(fullDay, input.today.cap) : fullDay;

@@ -80,15 +80,19 @@ export function localParts(
   };
 }
 
-/** Hétköznap, `from` és `to` óra között (a `to` már nem fér bele). */
+/**
+ * Hétköznap, `from` és `to` óra között (a `to` már nem fér bele).
+ * `weekends`: szombaton és vasárnap is, ugyanabban az órasávban.
+ */
 export function insideWindowAt(
   date: Date,
   timeZone: string,
   from: number,
   to: number,
+  weekends = false,
 ): boolean {
   const { weekday, hour } = localParts(date, timeZone);
-  if (weekday === 0 || weekday === 6) return false;
+  if (!weekends && (weekday === 0 || weekday === 6)) return false;
   return hour >= from && hour < to;
 }
 
@@ -102,13 +106,16 @@ export function nextWindowStart(
   timeZone: string,
   from: number,
   to: number,
+  weekends = false,
 ): Date {
-  if (insideWindowAt(date, timeZone, from, to)) return date;
+  if (insideWindowAt(date, timeZone, from, to, weekends)) return date;
   const probe = new Date(date);
   probe.setUTCMinutes(0, 0, 0);
   for (let step = 0; step < 8 * 24; step += 1) {
     probe.setUTCHours(probe.getUTCHours() + 1);
-    if (insideWindowAt(probe, timeZone, from, to)) return new Date(probe);
+    if (insideWindowAt(probe, timeZone, from, to, weekends)) {
+      return new Date(probe);
+    }
   }
   return new Date(date.getTime() + 24 * 3_600_000);
 }
@@ -133,15 +140,16 @@ export function pickRecipient(
   now: Date,
   from: number,
   to: number,
+  weekends = false,
 ): { index: number } | { waitUntil: Date; country: string } {
   const index = queue.findIndex((id) =>
-    insideWindowAt(now, timeZoneFor(countryOf(id)), from, to),
+    insideWindowAt(now, timeZoneFor(countryOf(id)), from, to, weekends),
   );
   if (index !== -1) return { index };
 
   let best: { waitUntil: Date; country: string } | null = null;
   for (const country of new Set(queue.map((id) => countryOf(id) ?? "INT"))) {
-    const at = nextWindowStart(now, timeZoneFor(country), from, to);
+    const at = nextWindowStart(now, timeZoneFor(country), from, to, weekends);
     if (!best || at < best.waitUntil) best = { waitUntil: at, country };
   }
   return (
