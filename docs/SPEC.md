@@ -1,65 +1,61 @@
-# SPEC — Queue csatolmányainak átírása menet közben
+# SPEC — Queue hétvégi futása
 
-Dátum: 2026-10-08 · Állapot: kész
+Dátum: 2026-10-09 · Állapot: kész
 
 ## Cél
 
-A Queue-k oldalon egy queue csatolmányai utólag is ki-be kapcsolhatók — a
-telepített példányról, futó queue-nál is —, és a küldő gép a következő
-levéltől már az új választást viszi. Eddig a választás a queue indulásakor
-bemásolódott a futó küldésbe, így utólag nem lehetett változtatni rajta.
+Egy queue-nál beállítható, hogy hétvégén is küldjön. Eddig a futás napja csak
+hétköznap lehetett, és a küldő szombaton, vasárnap egyáltalán nem küldött; a
+„munkaidőn kívül is” kapcsoló csak a kézi küldésé volt.
 
 ## Megfigyelhető viselkedés
 
-- Adott egy nem lezárt queue, amikor a kártyáján kiveszek egy fájlt, akkor a
-  választás mentődik, és a küldő a következő levelet már anélkül küldi.
-- Adott egy kivett fájl, amikor visszapipálom, akkor a következő levéltől
-  újra megy.
-- Adott egy queue egyetlen kiválasztott fájllal, akkor az nem vehető ki
-  (csatolmány nélküli küldés queue-ból nem megy).
-- Adott egy lezárt (`kesz`) queue, akkor a lista csak olvasható.
-- A már elküldött leveleken a változtatás nem módosít.
+- Adott a queue mentése, amikor bepipálom a „Hétvégén is” kapcsolót, akkor a
+  futás napja szombat vagy vasárnap is lehet.
+- Adott egy hétvégi futási nap a kapcsoló nélkül, akkor a mentés hibát ad, és
+  megmondja, hogy a kapcsoló kell hozzá.
+- Adott egy „hétvégén is” queue, akkor a küldő szombaton és vasárnap is küld,
+  ugyanúgy 7 és 19 óra között, a címzett helyi idejében; a naptár a hétvégi
+  napra is mutatja a tervet; a kártyán „hétvégén is” felirat áll.
+- A kapcsoló nélküli queue-k és a kézi küldés változatlanok.
 
 ## Érintett fájlok
 
-| Fájl                             | Változás                                                                                              |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `src/lib/sendQueues.ts`          | `setQueueAttachments()`; a választás ellenőrzése közös (`cleanAttachments`).                          |
-| `src/lib/sendCampaign.ts`        | `attachmentsNow()`: a queue-ból indult menet minden levél előtt a queue aktuális választását olvassa. |
-| `src/app/api/queues/route.ts`    | Új művelet: `attachments`.                                                                            |
-| `src/components/QueuesPanel.tsx` | A fájlcímkék jelölőnégyzetet kapnak.                                                                  |
+| Fájl                                             | Változás                                                             |
+| ------------------------------------------------ | -------------------------------------------------------------------- |
+| `src/lib/sendWindow.ts`                          | Az ablakfüggvények `weekends` paramétert kapnak.                     |
+| `src/lib/queuePlan.ts`                           | A terv hétvégi napra is oszt, ha a queue kéri.                       |
+| `src/lib/sendQueues.ts`                          | `weekends` mező; hétvégi futási nap engedése; továbbadás a küldőnek. |
+| `src/lib/sendCampaign.ts`                        | `weekends` opció a címzett-választásban.                             |
+| `src/app/api/queues/route.ts`                    | A `create` művelet `weekends` mezője.                                |
+| `src/components/QueueBar.tsx`, `QueuesPanel.tsx` | Kapcsoló a mentésnél, felirat a kártyán.                             |
 
 ## Interfészek
 
-- `POST /api/queues` `{ action: "attachments", id, attachments: string[] }` →
-  `{ message }`; üres vagy hiányzó lista, ismeretlen vagy lezárt queue → 400.
-- Adatbázis: nincs új mező — a `send_queues.attachments` íródik át.
+- `POST /api/queues` `{ action: "create", …, weekends?: boolean }`.
+- `send_queues.weekends?: boolean` (hiányzik = hamis); `QueueInfo.weekends`.
 
 ## Hatókörön kívül
 
-- A queue fiókjainak, címzettjeinek, futási napjának utólagos szerkesztése.
-- Címzettenkénti kimutatás arról, melyik levélre mi került fel.
-- Új fájl feltöltése a telepített példányról (a fájlok a küldő gépen élnek).
+- Éjszakai küldés queue-ból (a 7–19 órás ablak marad).
+- Meglévő queue kapcsolójának utólagos átállítása.
+- Ünnepnapok kezelése.
 
 ## Feltételezések
 
-- A küldő levelenként egy kis lekérdezéssel olvassa a választást; a levelek
-  10–20 percenként mennek, ez nem terhelés.
-- Ha a queue-t közben törölték, a menet az induláskori választással megy
-  tovább (a törlés a küldést amúgy is leállítja).
-- A panelből kézzel indított (nem queue-s) küldés változatlan.
+- A hétvége a címzett helyi ideje szerint számít, ahogy a hétköznap is.
+- A queue továbbra is egynapos: a hétvégi queue is csak a futás napján megy.
 
 ## Kockázat
 
-- **A küldő gépen az új kód kell.** Amíg ott a régi fut, a felület menti a
-  változtatást, de a már futó küldés az induláskori fájlokat viszi tovább.
-  Visszaút nem kell: frissítés (`git pull` + újraindítás) után érvényesül.
-- Két, közel egyszerre mentett változtatás közül az utolsó nyer.
+- A küldő gépen az új kód kell (`git pull` + újraindítás), különben a hétvégi
+  queue betöltődik, de a régi küldő hétfőig vár, és a nap végén a címzettek
+  visszakerülnek a listába.
+- Hétvégi megkeresésre rosszabb lehet a válaszarány; ez tartalmi döntés.
 
 ## Ellenőrzés (end-to-end)
 
 1. `npm run typecheck`, `npm run lint` — hiba nélkül.
-2. Próba-queue (leállított, címzett nélkül): fájl kivétele után az
-   `attachmentsNow()` az új listát adja; üres lista és lezárt queue → 400.
-3. Élesben: a küldő gép frissítése után egy futó queue-ból kivenni egy fájlt,
-   és a következő kiment levélen ellenőrizni (`/debug`: „csatolmany”).
+2. Ablak, terv és mentési szabály szombati dátummal, kapcsolóval és anélkül.
+3. Élesben: szombatra mentett „hétvégén is” queue elindul 7 óra után, és a
+   naplóban „…között, a címzett helyi idejében, hétvégén is” áll.

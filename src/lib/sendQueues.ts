@@ -67,6 +67,8 @@ interface QueueDoc {
    * minden, ami küldéskor a küldő gép mappájában van.
    */
   attachments?: string[] | null;
+  /** Igaz: hétvégén is küld (a futás napja is lehet szombat vagy vasárnap). */
+  weekends?: boolean;
   status: QueueStatus;
   /** Eredetileg ennyi címzettel készült (a ki nem ment címzettek lezáráskor kikerülnek). */
   planned?: number;
@@ -109,6 +111,8 @@ export interface QueueInfo {
   runDate: string;
   /** A kiválasztott csatolmányok; `null` = minden. */
   attachments: string[] | null;
+  /** Hétvégén is küld. */
+  weekends: boolean;
   status: QueueStatus;
   loadedAt: string | null;
   note: string | null;
@@ -164,6 +168,7 @@ export async function createQueue(input: {
   maxMinutes?: unknown;
   runDate?: unknown;
   attachments?: unknown;
+  weekends?: unknown;
 }): Promise<{
   id: string;
   total: number;
@@ -186,9 +191,10 @@ export async function createQueue(input: {
   if (runDate < today) {
     throw new Error("A futás napja nem lehet a múltban.");
   }
-  if (isWeekend(runDate)) {
+  const weekends = input.weekends === true;
+  if (isWeekend(runDate) && !weekends) {
     throw new Error(
-      "Hétvégén nem megy ki levél — válassz hétköznapot a futás napjának.",
+      "A futás napja hétvégére esik — pipáld be a „Hétvégén is” kapcsolót, vagy válassz hétköznapot.",
     );
   }
   if (runDate === today && senderHour(new Date()) >= START_UNTIL_HOUR) {
@@ -276,6 +282,7 @@ export async function createQueue(input: {
     maxMinutes: Math.max(minMinutes, clamp(input.maxMinutes, 1, 240, 20)),
     runDate,
     attachments,
+    ...(weekends ? { weekends } : {}),
     planned: fresh.length,
     status: "varakozik",
     loadedAt: null,
@@ -522,6 +529,7 @@ export async function queueOverview(): Promise<QueueOverview> {
           day: today,
           cap: remainingToday(now, doc.minMinutes, doc.maxMinutes),
         },
+        weekends: doc.weekends,
       },
       [doc.runDate],
       used,
@@ -561,6 +569,7 @@ export async function queueOverview(): Promise<QueueOverview> {
       released: doc.released ?? 0,
       runDate: doc.runDate,
       attachments: doc.attachments ?? null,
+      weekends: doc.weekends === true,
       status: doc.status,
       loadedAt: doc.loadedAt ?? null,
       note: doc.note ?? null,
@@ -574,7 +583,8 @@ export async function queueOverview(): Promise<QueueOverview> {
     provider: account.provider,
     cells: days.map((day) => ({
       sent: sent.get(account.user)?.get(day) ?? 0,
-      planned: isWeekend(day) ? 0 : (planned.get(account.id)?.get(day) ?? 0),
+      // Hétvégére csak a „hétvégén is” queue-k terveznek — a terv ezt már tudja.
+      planned: planned.get(account.id)?.get(day) ?? 0,
     })),
   }));
 
@@ -645,6 +655,7 @@ async function launch(
         day: today,
         cap: remainingToday(now, doc.minMinutes, doc.maxMinutes),
       },
+      weekends: doc.weekends,
     },
     [today],
     used,
@@ -678,6 +689,7 @@ async function launch(
       ignoreWindow: false,
       mode: "initial",
       ...(doc.attachments?.length ? { attachments: doc.attachments } : {}),
+      ...(doc.weekends ? { weekends: true } : {}),
       queueId: id,
     });
     offset += share;

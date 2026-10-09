@@ -176,6 +176,8 @@ export interface CampaignOptions {
   cvLink?: boolean;
   /** Melyik queue-ból indult (`sendQueues.ts`). */
   queueId?: string;
+  /** Igaz: az ablak szombaton és vasárnap is nyitva van (ugyanabban az órasávban). */
+  weekends?: boolean;
 }
 
 /**
@@ -478,6 +480,7 @@ async function pickInsideWindow(
     new Date(),
     options.windowFrom,
     options.windowTo,
+    options.weekends,
   );
   return "index" in pick ? { id: runner.queue[pick.index] } : pick;
 }
@@ -1091,7 +1094,8 @@ async function run(runner: Runner): Promise<void> {
         ? `TESZT MÓD: időkorlát nélkül, legfeljebb ${TEST_MODE_LIMIT} levél`
         : options.ignoreWindow
           ? "MUNKAIDŐN KÍVÜL IS: éjjel és hétvégén is küld"
-          : `${options.windowFrom}:00-${options.windowTo}:00 között, a címzett helyi idejében`),
+          : `${options.windowFrom}:00-${options.windowTo}:00 között, a címzett helyi idejében` +
+            (options.weekends ? ", hétvégén is" : "")),
   );
 
   if (!runner.queue.length) {

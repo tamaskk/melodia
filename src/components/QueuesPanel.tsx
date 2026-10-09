@@ -558,6 +558,7 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
                     {formatNumber(queue.total)} összesen · szünet{" "}
                     {queue.minMinutes}–{queue.maxMinutes} perc · futás napja:{" "}
                     {dayLabel(queue.runDate).date}
+                    {queue.weekends ? " · hétvégén is" : ""}
                   </p>
                   {queue.overflow ? (
                     <p className="text-xs text-amber-300">

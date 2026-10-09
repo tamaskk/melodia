@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * `{ action: "create", name, ids | filters, accounts: [{ accountId, dailyLimit }], minMinutes, maxMinutes, runDate }`
+ * `{ action: "create", name, ids | filters, accounts: [{ accountId, dailyLimit }], minMinutes, maxMinutes, runDate, weekends? }`
  * `{ action: "start" | "stop" | "requeue", id }`
  * `{ action: "attachments", id, attachments: string[] }`
  */
@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
       maxMinutes?: unknown;
       runDate?: unknown;
       attachments?: unknown;
+      weekends?: unknown;
     };
 
     if (body.action === "create") {
