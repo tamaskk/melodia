@@ -382,7 +382,7 @@ export default function QueueBar({
               <p className="text-xs text-amber-300">
                 {files?.remote
                   ? "A küldő gép még nem tette közzé a csatolmányai listáját — indítsd el a lokális szervert. Így mentve a queue minden csatolmányt visz, ami küldéskor a gépen van."
-                  : "Nincs fájl az attachments mappában — a levelek csatolmány nélkül mennek."}
+                  : "Nincs fájl az attachments mappában — csatolmány nélkül nem megy ki levél, a küldés megáll."}
               </p>
             )}
           </fieldset>

@@ -26,6 +26,8 @@ import { createLogger } from "./logger";
 import {
   isMailerReady,
   mailerConfig,
+  MissingAttachmentsError,
+  sendAlertEmail,
   sendContactEmail,
   sendFollowUpEmail,
 } from "./mailer";
@@ -965,6 +967,8 @@ async function deliver(
       attachments: result.attachments,
     };
   } catch (error) {
+    // Csatolmány híján a következő címzett is ugyanígy járna: ezt a menet kezeli.
+    if (error instanceof MissingAttachmentsError) throw error;
     const message = (error as Error).message;
     log.error(`${contact.company} — nem ment ki (${account.user}): ${message}`);
     return {
@@ -974,6 +978,58 @@ async function deliver(
       error: message,
     };
   }
+}
+
+/**
+ * Nincs mit csatolni: a levél nem megy ki, a címzett a sorban marad, a menet
+ * megáll, a queue leállítottra vált, és értesítő megy — egyetlen egy, nem
+ * címzettenként.
+ */
+async function haltWithoutAttachments(
+  runner: Runner,
+  contact: ContactDoc,
+  error: MissingAttachmentsError,
+): Promise<void> {
+  const { account, state, options } = runner;
+  state.status = "error";
+  state.message = error.message;
+  state.current = null;
+  state.nextAt = null;
+  log.error(`${account.user}: ${error.message}`);
+  await persist(runner);
+
+  let queueName: string | null = null;
+  if (options.queueId && ObjectId.isValid(options.queueId)) {
+    const queues = (await getDb()).collection<{
+      name: string;
+      status: string;
+      note?: string | null;
+    }>("send_queues");
+    const filter = { _id: new ObjectId(options.queueId) };
+    queueName = (await queues.findOne(filter))?.name ?? null;
+    // A lezárt queue állapotához nem nyúlunk.
+    await queues.updateOne(
+      { ...filter, status: { $ne: "kesz" } },
+      { $set: { status: "leallitva", note: error.message } },
+    );
+  }
+
+  await sendAlertEmail(
+    account.id,
+    "[Melodia] Leállt a küldés: nincs csatolmány",
+    [
+      "A küldés megállt, mert a következő levélhez egyetlen csatolmány sem volt elérhető. A levél NEM ment ki.",
+      "",
+      `Fiók: ${account.user}`,
+      ...(queueName ? [`Queue: ${queueName}`] : []),
+      `Ennél a címzettnél állt meg: ${contact.company} (${contact.primaryEmail ?? "nincs cím"})`,
+      `Még a sorban: ${runner.queue.length} címzett`,
+      `Kiválasztott fájlok: ${error.selected.join(", ") || "(nincs külön választás — a teljes mappa menne)"}`,
+      `A küldő gép mappája: ${error.folder}`,
+      "",
+      "Teendő: tedd a fájlokat a küldő gép mappájába (vagy igazítsd a queue csatolmányait a Queue-k oldalon), aztán tedd vissza a queue-t a sorba.",
+    ].join("\n"),
+  );
 }
 
 /**
@@ -1167,13 +1223,20 @@ async function run(runner: Runner): Promise<void> {
         `${contact.company} → ${contact.primaryEmail}`,
     );
 
-    const item = await deliver(
-      runner.account,
-      contact,
-      await attachmentsNow(options),
-      followUp ? await followUpRef(runner, contact._id) : null,
-      options.cvLink ? credential("CV_URL") || null : null,
-    );
+    let item: SentItem;
+    try {
+      item = await deliver(
+        runner.account,
+        contact,
+        await attachmentsNow(options),
+        followUp ? await followUpRef(runner, contact._id) : null,
+        options.cvLink ? credential("CV_URL") || null : null,
+      );
+    } catch (error) {
+      if (!(error instanceof MissingAttachmentsError)) throw error;
+      await haltWithoutAttachments(runner, contact, error);
+      return;
+    }
     runner.queue.shift();
     claimed.delete(id);
 

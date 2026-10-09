@@ -10,7 +10,11 @@
 import { readFile } from "node:fs/promises";
 import nodemailer, { type Transporter } from "nodemailer";
 import { getAccount, listAccounts, type MailAccount } from "./accounts";
-import { listAttachments, resolveSelection } from "./attachments";
+import {
+  attachmentsDir,
+  listAttachments,
+  resolveSelection,
+} from "./attachments";
 import { credential } from "./env";
 import { createLogger } from "./logger";
 import type { ContactDoc } from "./types";
@@ -18,6 +22,29 @@ import type { ContactDoc } from "./types";
 const log = createLogger("mailer");
 
 export type MailerConfig = MailAccount;
+
+/** Ide megy az értesítő, ha a küldés magától megáll. */
+const ALERT_FALLBACK = "kalman.tamaskrisztian@gmail.com";
+
+/**
+ * A levélhez egyetlen csatolmány sem található a küldő gépen — ilyenkor a levél
+ * nem megy ki. A hívó ebből tudja, hogy nem múló hiba: a következő címzettnél
+ * ugyanez történne, tehát meg kell állni.
+ */
+export class MissingAttachmentsError extends Error {
+  constructor(
+    /** A kiválasztott fájlok; üres, ha a teljes mappa ment volna. */
+    readonly selected: string[],
+    readonly folder: string,
+  ) {
+    super(
+      selected.length
+        ? `A kiválasztott csatolmányok (${selected.join(", ")}) közül egy sem található a küldő gépen (${folder}) — csatolmány nélkül nem küldök.`
+        : `Nincs csatolható fájl a küldő gép mappájában (${folder}) — csatolmány nélkül nem küldök.`,
+    );
+    this.name = "MissingAttachmentsError";
+  }
+}
 
 /** Egy fiók beállításai. Azonosító nélkül az első (alap) fiók. */
 export function mailerConfig(accountId?: string | null): MailerConfig | null {
@@ -237,6 +264,10 @@ export async function sendContactEmail(
       ? await resolveSelection(attachmentKeys, contact.language)
       : await listAttachments(contact.language);
   if (warning) log.warn(warning);
+  // Csatolmány nélkül nem megy ki első levél — kivéve, ha a CV-link váltja ki.
+  if (!cvUrl && !files.length) {
+    throw new MissingAttachmentsError(attachmentKeys ?? [], attachmentsDir());
+  }
   const text = cvUrl
     ? `${contact.emailBody}\n\n${contact.language === "hu" ? "Önéletrajzom" : "My CV"}: ${cvUrl}`
     : contact.emailBody;
@@ -271,6 +302,30 @@ export async function sendContactEmail(
     rejected,
     attachments: files.map((file) => file.filename),
   };
+}
+
+/**
+ * Értesítő saját magadnak, ha a küldés magától megállt. Ugyanabból a fiókból
+ * megy, mint a megállt küldés; a cím az `ALERT_EMAIL` beállítás. Sosem dob:
+ * az értesítő hibája nem fedheti el azt, amiről szólna.
+ */
+export async function sendAlertEmail(
+  accountId: string | null | undefined,
+  subject: string,
+  text: string,
+): Promise<void> {
+  const config = mailerConfig(accountId);
+  const to = credential("ALERT_EMAIL", ALERT_FALLBACK);
+  if (!config) {
+    log.error(`értesítő nem ment ki (${to}): nincs küldő fiók`);
+    return;
+  }
+  try {
+    await dispatch(config, { to, subject, text, files: [], reference: null });
+    log.info(`értesítő elküldve: ${to}`, { fiok: config.user, targy: subject });
+  } catch (error) {
+    log.error(`értesítő nem ment ki (${to}): ${(error as Error).message}`);
+  }
 }
 
 /**
