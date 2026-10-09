@@ -29,7 +29,23 @@ export interface PlanAccount {
   dailyMax: number | null;
 }
 
+/** Mi szabta meg egy fiók keretét egy adott napon. */
+export interface DayLimit {
+  /** A nap teljes kerete ennél a fióknál (a foglalt rész levonása előtt). */
+  cap: number;
+  /**
+   * A legszűkebb korlát: `limit` = a queue-ban kért napi keret · `warmup` =
+   * felfuttatás · `max` = a fiók saját napi maximuma · `time` = a szünetekből
+   * adódó napi darabszám · `today` = a mai nap hátralévő része.
+   */
+  by: "limit" | "warmup" | "max" | "time" | "today";
+  /** Ennyi már foglalt aznap (kiment levelek és korábban tervezett queue-k). */
+  taken: number;
+}
+
 export interface QueuePlan {
+  /** fiók → nap → mi korlátozott. Csak a tervezhető napokra. */
+  limits: Map<string, Map<string, DayLimit>>;
   /** fiók → nap → darab */
   cells: Map<string, Map<string, number>>;
   /** fiók → összesen */
@@ -119,6 +135,7 @@ export function planQueue(
   used: Map<string, Map<string, number>>,
 ): QueuePlan {
   const cells = new Map<string, Map<string, number>>();
+  const limits = new Map<string, Map<string, DayLimit>>();
   const totals = new Map<string, number>();
   const fullDay = throughputCap(input.minMinutes, input.maxMinutes);
   // Aki még nem küldött, annak a felfuttatása az első tervezett napján indul.
@@ -133,8 +150,8 @@ export function planQueue(
     if (!remaining) break;
     if (isWeekend(day) && !input.weekends) continue;
     const date = noon(day);
-    const perDay =
-      input.today?.day === day ? Math.min(fullDay, input.today.cap) : fullDay;
+    const isToday = input.today?.day === day;
+    const perDay = isToday ? Math.min(fullDay, input.today!.cap) : fullDay;
 
     for (const account of input.accounts) {
       if (!remaining) break;
@@ -144,8 +161,20 @@ export function planQueue(
         ? warmupCap(started, account.provider, date)
         : account.dailyMax;
       const taken = used.get(account.id)?.get(day) ?? 0;
-      const room =
-        Math.min(account.dailyLimit, warmup ?? Infinity, perDay) - taken;
+      const cap = Math.min(account.dailyLimit, warmup ?? Infinity, perDay);
+      const by: DayLimit["by"] =
+        cap === account.dailyLimit
+          ? "limit"
+          : cap === warmup
+            ? account.warmup
+              ? "warmup"
+              : "max"
+            : isToday && perDay < fullDay
+              ? "today"
+              : "time";
+      if (!limits.has(account.id)) limits.set(account.id, new Map());
+      limits.get(account.id)!.set(day, { cap, by, taken });
+      const room = cap - taken;
       const take = Math.min(remaining, Math.max(0, room));
       if (!take) continue;
 
@@ -160,5 +189,5 @@ export function planQueue(
     if (!remaining) finishDay = day;
   }
 
-  return { cells, totals, leftover: remaining, finishDay };
+  return { cells, limits, totals, leftover: remaining, finishDay };
 }

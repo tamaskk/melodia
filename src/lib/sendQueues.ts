@@ -479,6 +479,127 @@ function planAccounts(
 }
 
 /**
+ * A már lefoglalt keret (fiók → nap → darab): a ma kiment levelek és az élő
+ * queue-k saját napjukra tervezett darabjai — plusz a fiókok első küldése.
+ * Az automatikus ütemezés ebből tudja, hova fér még.
+ */
+export async function liveUsage(now = new Date()): Promise<{
+  used: Map<string, Map<string, number>>;
+  first: Map<string, string | null>;
+}> {
+  const today = dayKey(now);
+  const collection = await getContacts();
+  const [docs, first, sent] = await Promise.all([
+    (await queues())
+      .find({
+        status: { $in: ["varakozik", "fut"] },
+        runDate: { $gte: today },
+      })
+      .sort({ createdAt: 1 })
+      .toArray(),
+    firstSends(),
+    sentByDay(new Date(now.getTime() - 86_400_000).toISOString()),
+  ]);
+  const counts = await Promise.all(
+    docs.map((doc) => collection.countDocuments(eligible(doc.contactIds))),
+  );
+
+  const used = new Map<string, Map<string, number>>();
+  for (const [accountId, byDay] of sent) {
+    const todays = byDay.get(today);
+    if (todays) used.set(accountId, new Map([[today, todays]]));
+  }
+  // A terv a saját darabjait hozzáírja a `used`-hoz — pont ez kell.
+  docs.forEach((doc, index) =>
+    planQueue(
+      {
+        remaining: counts[index],
+        accounts: planAccounts(doc, first),
+        minMinutes: doc.minMinutes,
+        maxMinutes: doc.maxMinutes,
+        today: {
+          day: today,
+          cap: remainingToday(now, doc.minMinutes, doc.maxMinutes),
+        },
+        weekends: doc.weekends,
+      },
+      [doc.runDate],
+      used,
+    ),
+  );
+  return { used, first };
+}
+
+/** Egy előre megtervezett queue: egy nap, egy fiók, rögzített címzettek. */
+export interface PlannedQueue {
+  name: string;
+  runDate: string;
+  accountId: string;
+  dailyLimit: number;
+  contactIds: string[];
+}
+
+/**
+ * Több előre megtervezett queue létrehozása egyszerre (automatikus ütemezés).
+ * A hívó felel azért, hogy a címzettek még egyik queue-ban se legyenek.
+ */
+export async function createPlannedQueues(
+  planned: PlannedQueue[],
+  shared: {
+    minMinutes: number;
+    maxMinutes: number;
+    attachments: unknown;
+    weekends: boolean;
+  },
+): Promise<number> {
+  if (!planned.length) return 0;
+  const attachments = cleanAttachments(shared.attachments);
+  const minMinutes = clamp(shared.minMinutes, 1, 120, 10);
+  const maxMinutes = Math.max(minMinutes, clamp(shared.maxMinutes, 1, 240, 20));
+  const createdAt = new Date().toISOString();
+
+  const docs: QueueDoc[] = planned.map((queue) => ({
+    name: queue.name.slice(0, 80),
+    contactIds: queue.contactIds,
+    accounts: [
+      {
+        accountId: queue.accountId,
+        dailyLimit: clamp(queue.dailyLimit, 1, 100, 40),
+      },
+    ],
+    minMinutes,
+    maxMinutes,
+    runDate: queue.runDate,
+    attachments,
+    ...(shared.weekends ? { weekends: true } : {}),
+    planned: queue.contactIds.length,
+    status: "varakozik",
+    loadedAt: null,
+    note: null,
+    createdAt,
+  }));
+  const result = await (await queues()).insertMany(docs);
+  // A sorokra is ráírjuk, hogy a lista szűrni tudjon rá — queue-nként egy művelet.
+  await (
+    await getContacts()
+  ).bulkWrite(
+    planned.map((queue, index) => ({
+      updateMany: {
+        filter: { _id: members(queue.contactIds) } as Filter<Contact>,
+        update: { $set: { queueId: result.insertedIds[index].toString() } },
+      },
+    })),
+    { ordered: false },
+  );
+  log.info(`automatikus ütemezés: ${planned.length} queue létrehozva`, {
+    cimzett: planned.reduce((sum, queue) => sum + queue.contactIds.length, 0),
+    elso: planned[0].runDate,
+    utolso: planned[planned.length - 1].runDate,
+  });
+  return planned.length;
+}
+
+/**
  * A queue-k állapota és a naptár — a `/queues` oldal ebből él.
  *
  * A lezárt queue-kból alapból csak az utolsó `CLOSED_DAYS` nap jön: queue-nként
