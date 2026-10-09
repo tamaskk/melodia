@@ -10,8 +10,26 @@ import {
 import { credential } from "@/lib/env";
 import { forgetTransporter } from "@/lib/mailer";
 import { stopCampaign } from "@/lib/sendCampaign";
+import { cleanSteps, type WarmupStep } from "@/lib/warmup";
 
 export const dynamic = "force-dynamic";
+
+/** A felfuttatás kézzel állított kezdete: `now`, vagy egy nem jövőbeli nap. */
+function startFrom(input: unknown): string {
+  if (input === "now") return new Date().toISOString();
+  if (typeof input !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(input)) {
+    throw new Error("A kezdés ÉÉÉÉ-HH-NN alakú dátum legyen.");
+  }
+  // A nap dele: a naptári nap minden időzónában ugyanaz marad.
+  const start = new Date(`${input}T12:00:00Z`);
+  if (
+    Number.isNaN(start.getTime()) ||
+    start.getTime() > Date.now() + 86_400_000
+  ) {
+    throw new Error("A kezdés nem lehet a jövőben.");
+  }
+  return start.toISOString();
+}
 
 /** Minden küldő fiók, jelszó nélkül — és hogy mi van beállítva a felvételhez. */
 export async function GET() {
@@ -59,8 +77,11 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * Beállítás: `{ id, warmup?: boolean, dailyMax?: number | null }`.
+ * Beállítás: `{ id, warmup?: boolean, dailyMax?: number | null,
+ * warmupSteps?: [{ untilDay, cap }] | null, warmupStart?: "ÉÉÉÉ-HH-NN" | "now" | null }`.
  * A `dailyMax` a fiók saját napi maximuma — kikapcsolt felfuttatásnál él.
+ * `warmupSteps: null` = vissza a szolgáltató alapértelmezett lépcsőire;
+ * `warmupStart: null` = a felfuttatás újra az első küldéstől számít.
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -68,8 +89,30 @@ export async function PATCH(request: NextRequest) {
       id?: unknown;
       warmup?: unknown;
       dailyMax?: unknown;
+      warmupSteps?: unknown;
+      warmupStart?: unknown;
     };
-    const change: { warmup?: boolean; dailyMax?: number | null } = {};
+    const change: {
+      warmup?: boolean;
+      dailyMax?: number | null;
+      warmupSteps?: WarmupStep[] | null;
+      warmupStart?: string | null;
+    } = {};
+    try {
+      if (body.warmupSteps === null) change.warmupSteps = null;
+      else if (body.warmupSteps !== undefined) {
+        change.warmupSteps = cleanSteps(body.warmupSteps);
+      }
+      if (body.warmupStart === null) change.warmupStart = null;
+      else if (body.warmupStart !== undefined) {
+        change.warmupStart = startFrom(body.warmupStart);
+      }
+    } catch (error) {
+      return NextResponse.json(
+        { error: (error as Error).message },
+        { status: 400 },
+      );
+    }
     if (typeof body.warmup === "boolean") change.warmup = body.warmup;
     if (body.dailyMax === null) change.dailyMax = null;
     else if (body.dailyMax !== undefined) {
@@ -84,7 +127,10 @@ export async function PATCH(request: NextRequest) {
     }
     if (typeof body.id !== "string" || !Object.keys(change).length) {
       return NextResponse.json(
-        { error: "A body legyen { id, warmup: true | false } vagy { id, dailyMax: szám | null }." },
+        {
+          error:
+            "A body legyen { id } és legalább egy beállítás: warmup, dailyMax, warmupSteps vagy warmupStart.",
+        },
         { status: 400 },
       );
     }
@@ -96,7 +142,10 @@ export async function PATCH(request: NextRequest) {
     await saveAccountSettings(account.id, change);
     return NextResponse.json({ ok: true, id: account.id, ...change });
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
   }
 }
 

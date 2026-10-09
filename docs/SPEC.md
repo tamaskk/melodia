@@ -1,90 +1,71 @@
-# SPEC — Automatikus ütemezés
+# SPEC — Fiókonként állítható felfuttatás
 
 Dátum: 2026-10-09 · Állapot: kész
 
 ## Cél
 
-A Kontaktok oldalon, a szűrők alatt egy csukható panel a szűrt (vagy
-kijelölt) címzetteket egy lépésben szétosztja queue-kba: napokra és fiókokra,
-a fiókok saját napi keretéig. Eddig minden napra és fiókra kézzel kellett
-queue-t menteni.
+A Küldő fiókok oldalon fiókonként látszik, hol tart a felfuttatás, és
+szerkeszthetők a lépcsői: hozzáadás, törlés, átírás, visszaállítás az
+alapértékekre, és a felfuttatás újraindítása. Eddig a lépcsők a kódban voltak
+rögzítve szolgáltatónként, és az oldal csak annyit mutatott: „követi”.
 
 ## Megfigyelhető viselkedés
 
-- Adott a panel, amikor az „Elhelyezés” gombra nyomok, akkor egy előnézet
-  nyílik: hány címzett hány queue-ba kerül, mely napokra, mely fiókokra,
-  mennyi, és queue-nként lenyitva a címzettek. Queue csak az „Elfogadás”
-  után jön létre.
-- **Összes kiválasztott** mód: a kezdőnaptól (üresen: holnap) addig tölt
-  előre, amíg a címzettek el nem fogynak; az előnézet megmutatja, meddig tart.
-- **Egyéni időszak** mód: két dátum között tölt; ami nem fér bele, kimarad,
-  és az előnézet kiírja, mennyi. Ha kevesebb a címzett, csak annyit tesz be.
-- Minden napra minden kipipált fiók külön queue-t kap, a fiók aznapi szabad
-  keretéig: felfuttatásnál az arra a napra érvényes lépcső (a későbbi napokra
-  már a magasabb), kikapcsolt felfuttatásnál a fiók saját napi maximuma, felső
-  határ a szünetekből adódó napi darabszám. A lehető leghamarabb tölt, nem
-  oszt el egyenletesen.
-- A már betervezett queue-k és a ma kiment levelek levonódnak. Ha egy fiókon
-  aznap csak pár hely van, annyi kerül oda, és a sor kiírja, miért csak annyi;
-  ha nincs hely, a sor ezt jelzi, és a töltés a következő helytől folytatódik.
-- A címzettek cégnév szerint (A–Z) fogynak. Kimarad, akinek nincs címe, már
-  kapott levelet, vagy már benne van egy queue-ban.
-- „Hétvégén is” kapcsoló nélkül a szombat és a vasárnap kimarad.
-- A queue neve: `előtag · HH.NN. · fiók`. A csatolmány és a szünet a panelen
-  választható, minden létrejövő queue ugyanazt kapja.
+- Adott egy felfuttatást követő fiók, akkor a sora kiírja az állást:
+  „3. hét · 16. nap · ma max 30”, „még nem indult…” vagy „végzett — nincs
+  plafon”.
+- Az állásra kattintva szerkesztő nyílik: a lépcsők (eddig a napig, napi
+  max), a most érvényes lépcső kiemelve.
+- „+ Lépcső” új sort ad, a ✕ töröl, a „Lépcsők mentése” eltárolja; a saját
+  lépcsősor „Alapértékek visszaállítása” gombbal törölhető.
+- „Újraindítás mától”: a fiók mától az 1. lépcsőről indul. A kezdés napja
+  kézzel is megadható; „Vissza az első küldéshez” törli a kézi kezdést.
+- A küldő, a queue-terv, a naptár és az automatikus ütemezés ugyanezeket a
+  lépcsőket és kezdést használja.
+- Kikapcsolt felfuttatásnál a szerkesztő nem látszik (ott a napi max él).
 
 ## Érintett fájlok
 
-| Fájl                                   | Változás                                                        |
-| -------------------------------------- | --------------------------------------------------------------- |
-| `src/lib/autoSchedule.ts`              | Új. Terv, létrehozás, címzettnevek.                             |
-| `src/lib/queuePlan.ts`                 | A terv megadja, mi korlátozott egy fiókot egy napon (`limits`). |
-| `src/lib/sendQueues.ts`                | `liveUsage()` (foglalt keret), `createPlannedQueues()`.         |
-| `src/app/api/queues/auto/route.ts`     | Új. `GET` választók; `POST` preview / apply / leads.            |
-| `src/components/AutoSchedulePanel.tsx` | Új. Panel és előnézet-ablak.                                    |
-| `src/components/Dashboard.tsx`         | A panel a szűrők alá kerül.                                     |
+| Fájl                                                                          | Változás                                                        |
+| ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/lib/warmup.ts`                                                           | Saját lépcsősor paraméter, `warmupStatus`, `cleanSteps`.        |
+| `src/lib/accountStore.ts`                                                     | `warmupSteps`, `warmupStart` tárolása és betöltése.             |
+| `src/lib/accounts.ts`                                                         | A fiók viszi a lépcsőit és a kezdését; az áttekintés az állást. |
+| `src/lib/sendCampaign.ts`, `queuePlan.ts`, `sendQueues.ts`, `autoSchedule.ts` | A fiók lépcsőit és kezdését használják.                         |
+| `src/app/api/mail-accounts/route.ts`                                          | `PATCH` új mezői.                                               |
+| `src/components/AccountsPanel.tsx`                                            | Állás és szerkesztő.                                            |
 
 ## Interfészek
 
-- `GET /api/queues/auto` → `{ accounts, attachments }`.
-- `POST /api/queues/auto` `{ action: "preview" | "apply", filters | ids, mode,
-from?, to?, weekends, accountIds, minMinutes, maxMinutes, attachments?,
-prefix }` → `AutoPlan`, illetve `{ created, placed, leftover, lastDay }`.
-- `POST /api/queues/auto` `{ action: "leads", ids }` → legfeljebb 200 név.
-- Adatbázis: nincs új mező — a meglévő `send_queues` dokumentumok jönnek
-  létre, fiókonként és naponként egy.
+- `PATCH /api/mail-accounts` `{ id, warmupSteps?: [{ untilDay, cap }] | null,
+warmupStart?: "ÉÉÉÉ-HH-NN" | "now" | null }`. Lépcső: legfeljebb 12; a napok
+  szigorúan nőnek (≤ 365); napi darabszám 1–100.
+- `mail_account_settings.warmupSteps`, `.warmupStart` (hiányzik = alapértelmezés).
+- `AccountOverview.warmupStatus`: lépcsők, saját-e, kezdés, nap, mostani
+  lépcső, mai plafon.
 
 ## Hatókörön kívül
 
-- Egyenletes elosztás, prioritás pontszám szerint, fiókonként eltérő beállítás.
-- A létrehozott queue-k csoportos visszavonása (egyenként törölhetők).
-- Az időkorlát: „összes” módban nincs felső határ a napokra.
+- Globális (minden fiókra érvényes) alapértelmezés szerkesztése.
+- A felfuttatás automatikus visszaléptetése hiba vagy visszapattanás esetén.
 
 ## Feltételezések
 
-- Egy futtatás legfeljebb 20 000 címzettel számol; efölött az előnézet jelzi.
-- Az elfogadás a szerveren újraszámol: ha közben változott valami, az
-  eredmény eltérhet az előnézettől, a válasz a tényleges számokat adja.
-- A queue napi kerete a fiók aznapi kerete; a pontos darabszám indításkor
-  újra eldől, ahogy minden queue-nál.
+- A kezdés az első küldés; ha kézzel állítják, az felülírja.
+- Az utolsó lépcső után nincs felfuttatási plafon.
+- A darabszám lépcsőről lépcsőre csökkenhet is — szándékos visszavétel lehet.
 
 ## Kockázat
 
-- Ha egy fiókon aznap már fut egy queue, az utána következő csak akkor
-  indul, amikor az előző végzett — a maradék helyre tett queue-k sorban
-  mennek, és ha a nap végéig nem jutnak sorra, a címzettek visszakerülnek a
-  listába.
-- A felfuttatás későbbi lépcsői becslések: ha egy fiók közben nem küld, a
-  tényleges keret kisebb lehet a tervezettnél.
-- Egy elfogadás sok queue-t hoz létre egyszerre; visszavonni csak egyenként
-  lehet.
+- A küldő gépen az új kód kell (`git pull` + újraindítás): a régi küldő a
+  beégetett lépcsőket használja, a felületen beállítottakat nem.
+- A futó küldés a beállítást a fiókadatok következő frissülésekor veszi át,
+  nem azonnal.
+- Túl meredek saját lépcsősor a fiók letiltását kockáztatja.
 
 ## Ellenőrzés (end-to-end)
 
 1. `npm run typecheck`, `npm run lint` — hiba nélkül.
-2. A terv a valódi adatokon, csak olvasva: összes és időszak mód, hétvége,
-   egy fiók; a darabszámok egyeznek, nincs ismétlődő címzett, egy queue sem
-   lépi túl a szabad keretet.
-3. Létrehozás 3 címzettel távoli jövőbeli napra: a queue adatai, a címzettek
-   megjelölése, a második futás levonja a foglalt helyet; a végén törlés.
-4. Böngészőben 1440 és 390 px szélesen: panel, előnézet, címzettlista.
+2. Számítás alap és saját lépcsőkkel, újraindítás, a terv saját lépcsőkkel,
+   bemenet-ellenőrzés, mentés és visszaolvasás próbacímmel, API-hibák.
+3. Böngészőben 1440 és 390 px szélesen: állás a sorokban, szerkesztő.

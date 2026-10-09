@@ -1054,10 +1054,30 @@ async function ensureFirstSend(runner: Runner): Promise<void> {
   runner.state.warmupCap = capOf(runner);
 }
 
+/** Honnan számít a felfuttatás: a kézzel állított kezdéstől, különben az első küldéstől. */
+function warmupStartOf(runner: Runner): string | null | undefined {
+  return runner.account.warmupStart ?? runner.firstSendAt;
+}
+
+/** A fiók mostani lépcsője a naplóba és az állapotüzenetbe. */
+function warmupLabelOf(runner: Runner): string | null {
+  return warmupLabel(
+    warmupStartOf(runner),
+    runner.account.provider,
+    undefined,
+    runner.account.warmupSteps,
+  );
+}
+
 /** A fiók felfuttatási plafonja — `null`, ha túl van rajta, vagy ki van kapcsolva. */
 function capOf(runner: Runner): number | null {
   return runner.account.warmup
-    ? warmupCap(runner.firstSendAt, runner.account.provider)
+    ? warmupCap(
+        warmupStartOf(runner),
+        runner.account.provider,
+        undefined,
+        runner.account.warmupSteps,
+      )
     : null;
 }
 
@@ -1086,7 +1106,7 @@ async function run(runner: Runner): Promise<void> {
     `indul (${account.user}): ${runner.queue.length} címzett a sorban, ` +
       `napi keret ${dailyLimitOf(runner)}${
         runner.state.warmupCap
-          ? ` (${warmupLabel(runner.firstSendAt, account.provider)})`
+          ? ` (${warmupLabelOf(runner)})`
           : ""
       }, ` +
       `szünet ${options.minMinutes}-${options.maxMinutes} perc, ` +
@@ -1120,7 +1140,7 @@ async function run(runner: Runner): Promise<void> {
       state.message =
         `Mai keret elfogyott (${state.sentToday}/${dailyLimitOf(runner)}${
           runner.state.warmupCap
-            ? `, ${warmupLabel(runner.firstSendAt, account.provider)}`
+            ? `, ${warmupLabelOf(runner)}`
             : ""
         }). ` + "Holnap folytatható.";
       log.info(`${account.user}: ${state.message}`);

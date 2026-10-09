@@ -7,7 +7,7 @@
  * feladó naptárával közelíti, a címzettek időzónáját nem ismeri.
  */
 import type { MailProvider } from "./accountStore";
-import { warmupCap } from "./warmup";
+import { warmupCap, type WarmupStep } from "./warmup";
 
 /** A queue-ból indított menetek munkaidő-ablaka (a címzett helyi idejében). */
 export const QUEUE_WINDOW_FROM = 7;
@@ -21,8 +21,10 @@ export interface PlanAccount {
   provider: MailProvider;
   /** A queue-ban ehhez a fiókhoz beállított napi keret. */
   dailyLimit: number;
-  /** A fiók első küldése (felfuttatás kezdete), vagy `null`, ha még nem küldött. */
+  /** A felfuttatás kezdete (első küldés vagy kézi újraindítás); `null`, ha még nem indult. */
   firstSendAt: string | null;
+  /** A fiók saját lépcsősora; hiányzik = a szolgáltató alapértelmezése. */
+  warmupSteps?: WarmupStep[] | null;
   /** Hamis: a fiókon a felfuttatás ki van kapcsolva. */
   warmup: boolean;
   /** A fiók saját napi maximuma kikapcsolt felfuttatásnál, vagy `null`. */
@@ -158,7 +160,7 @@ export function planQueue(
       const started = firstSend.get(account.id) ?? date.toISOString();
       // Vagy a felfuttatás korlátoz, vagy a fiók saját maximuma — egyszerre egy.
       const warmup = account.warmup
-        ? warmupCap(started, account.provider, date)
+        ? warmupCap(started, account.provider, date, account.warmupSteps)
         : account.dailyMax;
       const taken = used.get(account.id)?.get(day) ?? 0;
       const cap = Math.min(account.dailyLimit, warmup ?? Infinity, perDay);

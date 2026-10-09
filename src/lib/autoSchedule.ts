@@ -189,7 +189,8 @@ export async function planAutoSchedule(
         id: account.id,
         provider: account.provider,
         dailyLimit: QUEUE_LIMIT,
-        firstSendAt: usage.first.get(account.id) ?? null,
+        firstSendAt: account.warmupStart ?? usage.first.get(account.id) ?? null,
+        warmupSteps: account.warmupSteps,
         warmup: account.warmup,
         dailyMax: account.dailyMax,
       })),
@@ -254,9 +255,7 @@ export async function planAutoSchedule(
 }
 
 /** A terv végrehajtása: újraszámol (a kliens tervében nem bízunk), és létrehoz. */
-export async function applyAutoSchedule(
-  input: AutoScheduleInput,
-): Promise<{
+export async function applyAutoSchedule(input: AutoScheduleInput): Promise<{
   created: number;
   placed: number;
   leftover: number;
