@@ -1,61 +1,60 @@
-# SPEC — Queue hétvégi futása
+# SPEC — Queue-k oldal három csoportban
 
 Dátum: 2026-10-09 · Állapot: kész
 
 ## Cél
 
-Egy queue-nál beállítható, hogy hétvégén is küldjön. Eddig a futás napja csak
-hétköznap lehetett, és a küldő szombaton, vasárnap egyáltalán nem küldött; a
-„munkaidőn kívül is” kapcsoló csak a kézi küldésé volt.
+A Queue-k oldal egyetlen hosszú kártyalista helyett három lenyitható
+csoportot mutat: ami most fut, ami tervezve van, és ami lejárt. A tervezett és
+a lejárt queue-k napra bontva, fiókonként egy sorban látszanak.
 
 ## Megfigyelhető viselkedés
 
-- Adott a queue mentése, amikor bepipálom a „Hétvégén is” kapcsolót, akkor a
-  futás napja szombat vagy vasárnap is lehet.
-- Adott egy hétvégi futási nap a kapcsoló nélkül, akkor a mentés hibát ad, és
-  megmondja, hogy a kapcsoló kell hozzá.
-- Adott egy „hétvégén is” queue, akkor a küldő szombaton és vasárnap is küld,
-  ugyanúgy 7 és 19 óra között, a címzett helyi idejében; a naptár a hétvégi
-  napra is mutatja a tervet; a kártyán „hétvégén is” felirat áll.
-- A kapcsoló nélküli queue-k és a kézi küldés változatlanok.
+- Adott az oldal megnyitása, akkor három csoport van, darabszámmal:
+  „Jelenleg futó queue-k” (nyitva), „Tervezett queue-k” és „Lejárt queue-k”
+  (csukva). A fél percenkénti frissítés nem csukja vissza, amit kinyitottál.
+- A futó csoportban a `fut` állapotú queue-k a megszokott teljes kártyával.
+- A tervezett csoportban a `varakozik` és a `leallitva` queue-k, futási nap
+  szerint növekvően; a dátum alatt küldő fiókonként egy sor (fiók, queue neve,
+  napi keret, hány vár). A leállított „leállítva” címkét kap.
+- A lejárt csoportban a `kesz` queue-k ugyanígy, a legfrissebb nap elöl, a sor
+  végén a kiment és a listába visszakerült darabszámmal.
+- Egy sorra kattintva lenyílik a queue teljes kártyája (csatolmányok,
+  címzettek, műveletek).
+- A lejártakból alapból az utolsó 30 nap látszik; ha van régebbi, „Összes
+  (N régebbi)” gomb tölti be mindet.
 
 ## Érintett fájlok
 
-| Fájl                                             | Változás                                                             |
-| ------------------------------------------------ | -------------------------------------------------------------------- |
-| `src/lib/sendWindow.ts`                          | Az ablakfüggvények `weekends` paramétert kapnak.                     |
-| `src/lib/queuePlan.ts`                           | A terv hétvégi napra is oszt, ha a queue kéri.                       |
-| `src/lib/sendQueues.ts`                          | `weekends` mező; hétvégi futási nap engedése; továbbadás a küldőnek. |
-| `src/lib/sendCampaign.ts`                        | `weekends` opció a címzett-választásban.                             |
-| `src/app/api/queues/route.ts`                    | A `create` művelet `weekends` mezője.                                |
-| `src/components/QueueBar.tsx`, `QueuesPanel.tsx` | Kapcsoló a mentésnél, felirat a kártyán.                             |
+| Fájl                             | Változás                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `src/components/QueuesPanel.tsx` | Három csoport, napra bontott sorok; a kártya külön függvény.                                               |
+| `src/lib/sendQueues.ts`          | `queueOverview({ allClosed })`: a 30 napnál régebben lezártak alapból kimaradnak; `olderClosed` darabszám. |
+| `src/app/api/queues/route.ts`    | `?all=1`.                                                                                                  |
 
 ## Interfészek
 
-- `POST /api/queues` `{ action: "create", …, weekends?: boolean }`.
-- `send_queues.weekends?: boolean` (hiányzik = hamis); `QueueInfo.weekends`.
+- `GET /api/queues?all=1` — a régebbi lezárt queue-k is.
+- `QueueOverview.olderClosed: number` — ennyi lezárt queue nincs a válaszban.
 
 ## Hatókörön kívül
 
-- Éjszakai küldés queue-ból (a 7–19 órás ablak marad).
-- Meglévő queue kapcsolójának utólagos átállítása.
-- Ünnepnapok kezelése.
+- A naptár, a queue-kártya tartalma és a műveletek változatlanok.
+- Lapozás a lejártak között; keresés queue-névre.
 
 ## Feltételezések
 
-- A hétvége a címzett helyi ideje szerint számít, ahogy a hétköznap is.
-- A queue továbbra is egynapos: a hétvégi queue is csak a futás napján megy.
+- Több fiókos queue fiókonként külön sort kap; bármelyik sor ugyanazt a
+  kártyát nyitja.
+- A leállított queue a tervezettek között van, mert visszatehető a sorba.
 
 ## Kockázat
 
-- A küldő gépen az új kód kell (`git pull` + újraindítás), különben a hétvégi
-  queue betöltődik, de a régi küldő hétfőig vár, és a nap végén a címzettek
-  visszakerülnek a listába.
-- Hétvégi megkeresésre rosszabb lehet a válaszarány; ez tartalmi döntés.
+- Csak megjelenítés és egy szűkebb lekérdezés: a küldést nem érinti. Visszaút
+  az ág visszavonása.
 
 ## Ellenőrzés (end-to-end)
 
 1. `npm run typecheck`, `npm run lint` — hiba nélkül.
-2. Ablak, terv és mentési szabály szombati dátummal, kapcsolóval és anélkül.
-3. Élesben: szombatra mentett „hétvégén is” queue elindul 7 óra után, és a
-   naplóban „…között, a címzett helyi idejében, hétvégén is” áll.
+2. Böngészőben 1440 és 390 px szélesen: három csoport a helyes darabszámmal,
+   napok és sorok, egy sor lenyitva kártyát mutat, nincs vízszintes görgetés.

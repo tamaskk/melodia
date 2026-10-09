@@ -18,6 +18,7 @@ export const dynamic = "force-dynamic";
 /**
  * Queue-k és naptár. `?brief=1`: csak név és méret (a kiküldő panel
  * választójához) — a teljes válasz számol és előrejelez, az lassabb.
+ * `?all=1`: a 30 napnál régebben lezárt queue-k is.
  */
 export async function GET(request: NextRequest) {
   try {
@@ -29,7 +30,9 @@ export async function GET(request: NextRequest) {
       });
     }
     return NextResponse.json({
-      ...(await queueOverview()),
+      ...(await queueOverview({
+        allClosed: request.nextUrl.searchParams.get("all") === "1",
+      })),
       accounts: publicAccounts(),
       // A kártyák ebből írják ki név szerint, mi megy a levelekkel.
       attachments: await availableAttachments(),

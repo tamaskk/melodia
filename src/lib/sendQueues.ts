@@ -40,6 +40,8 @@ const SERVERLESS = Boolean(process.env.VERCEL);
 const MAX_CONTACTS = 5000;
 /** A naptár: ennyi nap visszafelé és előre (a mai nappal együtt). */
 const PAST_DAYS = 7;
+/** A lezárt queue-k alapból eddig látszanak visszamenőleg. */
+const CLOSED_DAYS = 30;
 const FUTURE_DAYS = 21;
 
 interface QueueAccount {
@@ -129,6 +131,8 @@ export interface CalendarRow {
 
 export interface QueueOverview {
   queues: QueueInfo[];
+  /** Ennyi régebbi lezárt queue nincs a listában (`allClosed` nélkül). */
+  olderClosed: number;
   calendar: { days: string[]; today: string; rows: CalendarRow[] };
 }
 
@@ -474,15 +478,28 @@ function planAccounts(
   return out;
 }
 
-/** Minden queue állapota és a naptár — a `/queues` oldal ebből él. */
-export async function queueOverview(): Promise<QueueOverview> {
+/**
+ * A queue-k állapota és a naptár — a `/queues` oldal ebből él.
+ *
+ * A lezárt queue-kból alapból csak az utolsó `CLOSED_DAYS` nap jön: queue-nként
+ * két számlálás fut, a régiekre ezt kár elkölteni. `allClosed`: mind.
+ */
+export async function queueOverview(
+  options: { allClosed?: boolean } = {},
+): Promise<QueueOverview> {
   const now = new Date();
   const today = dayKey(now);
   const days = dayKeys(now, -PAST_DAYS, PAST_DAYS + FUTURE_DAYS);
+  const [closedFrom] = dayKeys(now, -CLOSED_DAYS, 1);
+  const older = { status: "kesz" as const, runDate: { $lt: closedFrom } };
 
   const collection = await getContacts();
-  const [docs, first, active, sent] = await Promise.all([
-    (await queues()).find({}).sort({ createdAt: 1 }).toArray(),
+  const [docs, olderClosed, first, active, sent] = await Promise.all([
+    (await queues())
+      .find(options.allClosed ? {} : { $nor: [older] })
+      .sort({ createdAt: 1 })
+      .toArray(),
+    options.allClosed ? 0 : (await queues()).countDocuments(older),
     firstSends(),
     activeCampaigns(),
     // Egy nap ráhagyás: a napok határa a feladó időzónájában van, nem UTC-ben.
@@ -588,7 +605,7 @@ export async function queueOverview(): Promise<QueueOverview> {
     })),
   }));
 
-  return { queues: infos, calendar: { days, today, rows } };
+  return { queues: infos, olderClosed, calendar: { days, today, rows } };
 }
 
 const NOTHING_LEFT = "Ebben a queue-ban már nincs kinek küldeni.";
