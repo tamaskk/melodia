@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import AutoSchedulePanel from "./AutoSchedulePanel";
 import BulkTemplate from "./BulkTemplate";
 import ContactTable from "./ContactTable";
 import ExportBar from "./ExportBar";
@@ -659,6 +660,12 @@ export default function Dashboard({
             setPage(0);
             setFilters(EMPTY_FILTERS);
           }}
+        />
+
+        <AutoSchedulePanel
+          filters={panelFilters}
+          selectedIds={[...selected]}
+          onCreated={reload}
         />
 
         {selected.size > 0 ? (
