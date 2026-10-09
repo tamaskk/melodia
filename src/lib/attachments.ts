@@ -6,7 +6,7 @@
  * megfelelő `hu/` vagy `en/` almappa, ha létezik.
  */
 import { readdir, stat } from "node:fs/promises";
-import { extname, join, resolve } from "node:path";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { credential } from "./env";
 import { createLogger } from "./logger";
 import type { Language } from "./types";
@@ -127,7 +127,10 @@ export async function resolveSelection(
     const name = raw.replace(/^\/+/, "");
     const path = resolve(root, name);
     // Útvonal-kitörés ellen: a feloldott útvonal a mappán belül kell maradjon.
-    if (!path.startsWith(root + "/")) {
+    // Relatív útvonalból döntjük el, mert az elválasztó rendszerenként más:
+    // Windowson `\`, ott a `/`-re épülő összevetés minden fájlt kizárna.
+    const inside = relative(root, path);
+    if (!inside || inside.startsWith("..") || isAbsolute(inside)) {
       log.warn(`kihagyva (mappán kívüli útvonal): ${raw}`);
       continue;
     }
