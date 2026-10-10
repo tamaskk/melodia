@@ -5,8 +5,17 @@
  * szétválasztható: a gyökér tartalma mindig megy, plusz a kontakt nyelvének
  * megfelelő `hu/` vagy `en/` almappa, ha létezik.
  */
+import type { Stats } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
-import { extname, isAbsolute, join, relative, resolve } from "node:path";
+import {
+  basename,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { credential } from "./env";
 import { createLogger } from "./logger";
 import type { Language } from "./types";
@@ -62,9 +71,13 @@ async function filesIn(dir: string, scope: string): Promise<AttachmentInfo[]> {
       log.warn(`kihagyva (nem támogatott típus): ${name}`);
       continue;
     }
+    // A név egységes (NFC) alakban megy tovább. A macOS az ékezetes neveket
+    // bontva (NFD) adja vissza, a Windows egyben (NFC) — a kettő másképp
+    // néz ki bájtra, és a queue-ban tárolt kulcs így nem egyezne a jegyzékkel.
+    const clean = name.normalize("NFC");
     found.push({
-      filename: name,
-      key: scope === "közös" ? name : `${scope}/${name}`,
+      filename: clean,
+      key: scope === "közös" ? clean : `${scope}/${clean}`,
       path,
       bytes: info.size,
       scope,
@@ -110,6 +123,28 @@ export async function listAttachments(
 }
 
 /**
+ * A fájl a lemezen, az ékezetek kódolásától függetlenül. A kulcs és a lemezen
+ * lévő név eltérhet (NFC ↔ NFD): macOS-en ez mindegy, Windowson és Linuxon
+ * viszont a pontos bájtsor kell — ezért ha nincs meg, a mappában keressük meg
+ * azt, amelyik egységes alakban ugyanaz.
+ */
+async function onDisk(
+  path: string,
+): Promise<{ path: string; info: Stats } | null> {
+  const direct = await stat(path).catch(() => null);
+  if (direct?.isFile()) return { path, info: direct };
+
+  const folder = dirname(path);
+  const wanted = basename(path).normalize("NFC");
+  const entries = await readdir(folder).catch(() => [] as string[]);
+  const match = entries.find((entry) => entry.normalize("NFC") === wanted);
+  if (!match) return null;
+  const actual = join(folder, match);
+  const info = await stat(actual).catch(() => null);
+  return info?.isFile() ? { path: actual, info } : null;
+}
+
+/**
  * Kézzel kiválasztott fájlok feloldása. A név mindig az `attachments/` mappához
  * relatív (`CV.pdf`, `en/Letter.pdf`) — kilépni belőle nem lehet.
  *
@@ -134,12 +169,13 @@ export async function resolveSelection(
       log.warn(`kihagyva (mappán kívüli útvonal): ${raw}`);
       continue;
     }
-    const info = await stat(path).catch(() => null);
-    if (!info?.isFile()) {
+    const found = await onDisk(path);
+    if (!found) {
       log.warn(`kihagyva (nincs ilyen fájl): ${raw}`);
       continue;
     }
-    if (!ALLOWED.has(extname(path).toLowerCase())) continue;
+    const { path: actual, info } = found;
+    if (!ALLOWED.has(extname(actual).toLowerCase())) continue;
 
     const folder = name.includes("/") ? name.split("/")[0] : "közös";
     // Nyelvhez kötött fájl csak az adott nyelvű levélre mehet.
@@ -147,8 +183,8 @@ export async function resolveSelection(
       continue;
     }
     files.push({
-      filename: name.split("/").pop() ?? name,
-      path,
+      filename: (name.split("/").pop() ?? name).normalize("NFC"),
+      path: actual,
       bytes: info.size,
       scope: folder,
     });
