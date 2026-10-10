@@ -10,11 +10,15 @@
 import { listAttachments } from "./attachments";
 import { createLogger } from "./logger";
 import { getDb } from "./mongodb";
+import { isSender } from "./role";
 
 const log = createLogger("csatolmany");
 
-/** Telepített (serverless) példány: nincs saját mappája, a jegyzékből olvas. */
-const SERVERLESS = Boolean(process.env.VERCEL);
+/**
+ * Néző példány: a küldő gép közzétett jegyzékéből olvas, a sajátját nem teszi
+ * közzé — különben két gép felváltva írná felül egymásét.
+ */
+const VIEWER = !isSender();
 
 export interface AttachmentChoice {
   /** Az `attachments/` mappához relatív név — ezzel hivatkozik rá a queue. */
@@ -74,9 +78,9 @@ async function localAttachments(): Promise<{
   };
 }
 
-/** A küldő gép közzéteszi a mappája jegyzékét. Telepített példányon nem csinál semmit. */
+/** A küldő gép közzéteszi a mappája jegyzékét. Néző példányon nem csinál semmit. */
 export async function publishAttachments(): Promise<void> {
-  if (SERVERLESS) return;
+  if (VIEWER) return;
   try {
     const { files } = await localAttachments();
     await (await state()).updateOne(
@@ -92,7 +96,7 @@ export async function publishAttachments(): Promise<void> {
 
 /** Amiből választani lehet: helyben a mappa, telepített példányon a jegyzék. */
 export async function availableAttachments(): Promise<AttachmentList> {
-  if (!SERVERLESS) {
+  if (!VIEWER) {
     return { ...(await localAttachments()), remote: false, updatedAt: null };
   }
   const doc = await (await state()).findOne({ _id: "attachments" });
