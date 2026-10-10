@@ -2,10 +2,16 @@ import { NextResponse, type NextRequest } from "next/server";
 import { authMode, SESSION_COOKIE, verifySession } from "@/lib/auth";
 
 /**
- * Ami belépés nélkül is elérhető: a belépő oldal, a belépés végpontja, és a
- * külső kutatóbot két API-ja (az szándékosan kulcs nélküli — `docs/GROKBOT.md`).
+ * Ami belépés nélkül is elérhető: a belépő oldal, a belépés végpontja, a
+ * külső kutatóbot két API-ja (az szándékosan kulcs nélküli — `docs/GROKBOT.md`),
+ * és a widget API-ja (szándékosan nyílt, csak olvas).
  */
-const PUBLIC = [/^\/login$/, /^\/api\/auth$/, /^\/api\/bot\//];
+const PUBLIC = [
+  /^\/login$/,
+  /^\/api\/auth$/,
+  /^\/api\/bot\//,
+  /^\/api\/widget\//,
+];
 
 /** Minden más kérés előtt: van-e érvényes munkamenet. */
 export function proxy(request: NextRequest) {

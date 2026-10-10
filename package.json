@@ -9,6 +9,7 @@
     "lint": "eslint",
     "seed": "tsx scripts/seed.ts",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
     "parse": "tsx scripts/parse-pdfs.ts",
     "emails": "tsx scripts/apply-emails.ts",
     "backfill-aliases": "tsx scripts/backfill-aliases.ts"

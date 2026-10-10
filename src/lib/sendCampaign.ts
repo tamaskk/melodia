@@ -23,6 +23,7 @@ import {
 } from "./contacts";
 import { listAttachments, resolveSelection } from "./attachments";
 import { createLogger } from "./logger";
+import { recordSendFailure } from "./queueStats";
 import {
   isMailerReady,
   mailerConfig,
@@ -554,6 +555,24 @@ async function persist(runner: Runner): Promise<void> {
     // A mentés kiesése nem állíthatja meg a küldést.
     log.warn(`állapot mentése nem sikerült: ${(error as Error).message}`);
   }
+}
+
+/**
+ * A következő levél időpontja külön, azonnal: a teljes mentés a küldés után
+ * fut, a várakozás elején viszont még a régi időpont állna az adatbázisban.
+ * A küldés nem vár rá, és a hibája sem állítja meg.
+ */
+function saveNextAt(runner: Runner): void {
+  void campaigns()
+    .then((collection) =>
+      collection.updateOne(
+        { accountId: runner.account.id },
+        { $set: { nextAt: runner.state.nextAt } },
+      ),
+    )
+    .catch((error: Error) =>
+      log.warn(`a következő időpont mentése nem sikerült: ${error.message}`),
+    );
 }
 
 /**
@@ -1163,6 +1182,7 @@ async function run(runner: Runner): Promise<void> {
         const zone = timeZoneFor(pick.country);
         state.current = null;
         state.nextAt = pick.waitUntil.toISOString();
+        saveNextAt(runner);
         state.message =
           `Most senkinél nincs munkaidő a sorban — a következő: ` +
           `${COUNTRIES[pick.country]?.hu ?? "nemzetközi"}, ` +
@@ -1268,6 +1288,7 @@ async function run(runner: Runner): Promise<void> {
 
     if (item.error) {
       state.failed += 1;
+      recordSendFailure(account.id);
       failuresInARow += 1;
       // Sorozatos hiba: jelszó, limit vagy hálózat. Nincs értelme tovább hajtani.
       if (failuresInARow >= 3) {
@@ -1297,6 +1318,7 @@ async function run(runner: Runner): Promise<void> {
     const wait = pause(options);
     state.current = null;
     state.nextAt = new Date(Date.now() + wait).toISOString();
+    saveNextAt(runner);
     log.debug(
       `${account.user}: következő levél ${Math.round(wait / 60000)} perc múlva`,
     );
