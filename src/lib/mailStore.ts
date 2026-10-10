@@ -165,7 +165,29 @@ export interface ThreadFilters {
   /** Szabadszavas keresés cégre, címre, tárgyra. */
   q?: string;
   status?: ThreadStatus | "";
+  /** Csak azok a szálak, ahol emberi válasz jött, és az elutasítás volt. */
+  rejected?: boolean;
   limit?: number;
+}
+
+/**
+ * Akik elutasítottak: kézzel rögzített kimenetel, vagy — ha kimenetel még
+ * nincs — az osztályozó ítélete a legutóbbi válaszról. Csak azonosítót hozunk.
+ */
+async function rejectedContactIds(): Promise<Set<string>> {
+  const contacts = await getContacts();
+  const rows = await contacts
+    .find(
+      {
+        $or: [
+          { outcome: "elutasitva" },
+          { outcome: null, "replyTriage.category": "elutasitas" },
+        ],
+      } as never,
+      { projection: { _id: 1 } },
+    )
+    .toArray();
+  return new Set(rows.map((row) => String(row._id)));
 }
 
 function statusOf(thread: {
@@ -217,8 +239,11 @@ interface ThreadRow {
 export async function listThreads(
   filters: ThreadFilters = {},
 ): Promise<{ threads: MailThread[]; stats: MailStats }> {
+  const rejected = filters.rejected ? await rejectedContactIds() : null;
   const cached = cache && Date.now() - cache.at < CACHE_MS ? cache : null;
-  if (cached) return applyFilters(cached.threads, cached.stats, filters);
+  if (cached) {
+    return applyFilters(cached.threads, cached.stats, filters, rejected);
+  }
 
   const collection = await mailCollection();
 
@@ -298,7 +323,7 @@ export async function listThreads(
     delivered > 0 ? Math.round((stats.answered / delivered) * 100) : 0;
 
   cache = { at: Date.now(), threads, stats };
-  return applyFilters(threads, stats, filters);
+  return applyFilters(threads, stats, filters, rejected);
 }
 
 /** Állapot- és szövegszűrés a kész listán. */
@@ -306,8 +331,17 @@ function applyFilters(
   threads: MailThread[],
   stats: MailStats,
   filters: ThreadFilters,
+  rejected: Set<string> | null,
 ): { threads: MailThread[]; stats: MailStats } {
   let rows = threads;
+  if (rejected) {
+    rows = rows.filter(
+      (thread) =>
+        thread.contactId !== null &&
+        rejected.has(thread.contactId) &&
+        (thread.status === "valasz-var" || thread.status === "valaszoltam"),
+    );
+  }
   if (filters.status) {
     rows = rows.filter((thread) => thread.status === filters.status);
   }

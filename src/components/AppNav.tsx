@@ -210,6 +210,9 @@ export default function AppNav() {
         <Link href="/mail" className={linkClass(isActive("/mail"))}>
           Levelezés
         </Link>
+        <Link href="/rejected" className={linkClass(isActive("/rejected"))}>
+          Elutasítások
+        </Link>
         <Link href="/jobs" className={linkClass(isActive("/jobs"))}>
           Munkák
         </Link>
