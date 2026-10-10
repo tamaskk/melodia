@@ -10,8 +10,8 @@ import { isInboxReady } from "@/lib/inbox";
 export const dynamic = "force-dynamic";
 
 /**
- * Szálak listája (`?status=valasz-var&q=nova`), vagy egy szál teljes
- * levelezése (`?threadId=...`).
+ * Szálak listája (`?status=valasz-var&q=nova`), csak az elutasítások
+ * (`?rejected=1`), vagy egy szál teljes levelezése (`?threadId=...`).
  */
 export async function GET(request: NextRequest) {
   try {
@@ -22,16 +22,26 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ messages: await threadMessages(threadId) });
     }
 
+    const rejected = params.get("rejected") === "1";
     const [{ threads, stats }, daily] = await Promise.all([
       listThreads({
         q: params.get("q") ?? "",
         status: (params.get("status") ?? "") as ThreadStatus | "",
+        rejected,
         limit: Number(params.get("limit") ?? 500),
       }),
-      dailyCounts(Math.max(7, Math.min(90, Number(params.get("days") ?? 30)))),
+      // Az elutasítások oldalán nincs diagram — kár lekérdezni.
+      rejected
+        ? []
+        : dailyCounts(
+            Math.max(7, Math.min(90, Number(params.get("days") ?? 30))),
+          ),
     ]);
     return NextResponse.json({ threads, stats, daily, ready: isInboxReady() });
   } catch (error) {
-    return NextResponse.json({ error: (error as Error).message }, { status: 500 });
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
   }
 }

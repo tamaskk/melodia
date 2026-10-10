@@ -90,6 +90,8 @@ export async function getContacts(): Promise<Collection<Contact>> {
       collection.createIndex({ size: 1 }),
       collection.createIndex({ city: 1 }),
       collection.createIndex({ tags: 1 }),
+      collection.createIndex({ outcome: 1 }),
+      collection.createIndex({ "replyTriage.category": 1 }),
       // Kapcsolattartó-keresés: "kinél van már ember" és "kinél kerestünk".
       collection.createIndex(
         { peopleSearchedAt: -1 },

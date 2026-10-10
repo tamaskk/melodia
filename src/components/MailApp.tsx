@@ -210,8 +210,15 @@ function Bubble({ message }: { message: MailMessage }) {
  * Levelező felület a megkeresésekhez: bal oldalt a szálak, jobb oldalt a
  * teljes levelezés. Csak az ide tartozó levelek látszanak — a postafiók
  * magánlevelezése be sem kerül az adatbázisba.
+ *
+ * `rejectedOnly`: ugyanez a felület, de csak az elutasító válaszok szálaival,
+ * számok, diagram és állapotszűrő nélkül.
  */
-export default function MailApp() {
+export default function MailApp({
+  rejectedOnly = false,
+}: {
+  rejectedOnly?: boolean;
+}) {
   const [threads, setThreads] = useState<MailThread[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [status, setStatus] = useState<ThreadStatus | "">("");
@@ -230,6 +237,7 @@ export default function MailApp() {
     try {
       const params = new URLSearchParams();
       if (status) params.set("status", status);
+      if (rejectedOnly) params.set("rejected", "1");
       if (query.trim()) params.set("q", query.trim());
       params.set("days", String(days));
       const response = await fetch(`/api/mail?${params}`, {
@@ -247,7 +255,7 @@ export default function MailApp() {
     } finally {
       setLoading(false);
     }
-  }, [status, query, days]);
+  }, [status, query, days, rejectedOnly]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 200);
@@ -320,10 +328,13 @@ export default function MailApp() {
     <div className="mx-auto flex h-full w-full max-w-[1500px] flex-col gap-4 p-4 sm:p-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-semibold">Levelezés</h1>
+          <h1 className="text-2xl font-semibold">
+            {rejectedOnly ? "Elutasítások" : "Levelezés"}
+          </h1>
           <p className="text-sm text-[var(--muted)]">
-            A kiküldött jelentkezések, a rájuk érkezett válaszok és a saját
-            válaszaim — csak ezek, a postafiók többi levele nélkül.
+            {rejectedOnly
+              ? "Akik válaszoltak, de elutasítottak — a teljes levelezéssel."
+              : "A kiküldött jelentkezések, a rájuk érkezett válaszok és a saját válaszaim — csak ezek, a postafiók többi levele nélkül."}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -380,7 +391,7 @@ export default function MailApp() {
         </p>
       ) : null}
 
-      {stats ? (
+      {stats && !rejectedOnly ? (
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
           {[
             ["Megkeresés", formatNumber(stats.threads), ""],
@@ -406,7 +417,7 @@ export default function MailApp() {
         </div>
       ) : null}
 
-      {daily.length ? (
+      {daily.length && !rejectedOnly ? (
         <MailChart data={daily} days={days} onDaysChange={setDays} />
       ) : null}
 
@@ -418,7 +429,7 @@ export default function MailApp() {
           placeholder="Keresés: cég, cím, tárgy…"
           className="h-9 min-w-[240px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm outline-none focus:border-blue-500"
         />
-        {FILTERS.map((filter) => (
+        {(rejectedOnly ? [] : FILTERS).map((filter) => (
           <button
             key={filter.key || "mind"}
             type="button"
@@ -432,6 +443,11 @@ export default function MailApp() {
             {filter.label}
           </button>
         ))}
+        {rejectedOnly ? (
+          <span className="text-xs text-[var(--muted)]">
+            {formatNumber(threads.length)} elutasítás
+          </span>
+        ) : null}
         {loading ? (
           <span className="text-xs text-[var(--muted)]">frissítés…</span>
         ) : null}
@@ -446,9 +462,11 @@ export default function MailApp() {
             <p className="p-4 text-sm text-[var(--muted)]">
               {loading
                 ? "Töltés…"
-                : ready
-                  ? "Még nincs behúzott levél. Nyomd meg a „Frissítés a Gmailből” gombot."
-                  : "Állítsd be a Gmail-hozzáférést, utána tudok leveleket behúzni."}
+                : rejectedOnly
+                  ? "Nincs elutasító válasz. Ide az kerül, akinél a kimenetel „Elutasítva”, vagy a válaszát az osztályozó elutasításnak ítélte."
+                  : ready
+                    ? "Még nincs behúzott levél. Nyomd meg a „Frissítés a Gmailből” gombot."
+                    : "Állítsd be a Gmail-hozzáférést, utána tudok leveleket behúzni."}
             </p>
           ) : (
             <ul className="divide-y divide-[var(--border)]">
