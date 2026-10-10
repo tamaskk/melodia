@@ -1,71 +1,80 @@
-# SPEC — Fiókonként állítható felfuttatás
+# SPEC — Kimenő levél a címzettlistában, queue szerinti szűrés
 
-Dátum: 2026-10-09 · Állapot: kész
+Dátum: 2026-10-10 · Állapot: kész
 
 ## Cél
 
-A Küldő fiókok oldalon fiókonként látszik, hol tart a felfuttatás, és
-szerkeszthetők a lépcsői: hozzáadás, törlés, átírás, visszaállítás az
-alapértékekre, és a felfuttatás újraindítása. Eddig a lépcsők a kódban voltak
-rögzítve szolgáltatónként, és az oldal csak annyit mutatott: „követi”.
+Kiküldés előtt látszódjon, melyik cégnek milyen levél megy, és legyen
+megjelölve, ha a levél nyelve nem illik a cég országához. 2026-10-10-én két
+magyar cég angol levelet kapott: az adatbázisban a sorukon angol levél állt,
+és ezt a queue-ban semmi nem mutatta. Emellett a Kontaktok listája legyen
+szűrhető egy konkrét queue-ra.
 
 ## Megfigyelhető viselkedés
 
-- Adott egy felfuttatást követő fiók, akkor a sora kiírja az állást:
-  „3. hét · 16. nap · ma max 30”, „még nem indult…” vagy „végzett — nincs
-  plafon”.
-- Az állásra kattintva szerkesztő nyílik: a lépcsők (eddig a napig, napi
-  max), a most érvényes lépcső kiemelve.
-- „+ Lépcső” új sort ad, a ✕ töröl, a „Lépcsők mentése” eltárolja; a saját
-  lépcsősor „Alapértékek visszaállítása” gombbal törölhető.
-- „Újraindítás mától”: a fiók mától az 1. lépcsőről indul. A kezdés napja
-  kézzel is megadható; „Vissza az első küldéshez” törli a kézi kezdést.
-- A küldő, a queue-terv, a naptár és az automatikus ütemezés ugyanezeket a
-  lépcsőket és kezdést használja.
-- Kikapcsolt felfuttatásnál a szerkesztő nem látszik (ott a napi max él).
+- A Queue-k oldalon egy queue Címzettek listájában minden cég alatt látszik a
+  levél nyelve és tárgya; a sorra kattintva lenyílik a teljes szöveg.
+- Ha a nyelv nem illik az országhoz (magyar cégnek nem magyar levél, vagy
+  külföldinek magyar), a sor sárga jelölést kap az okkal.
+- A queue kártyája kiírja, hány még ki nem ment címzettnél van ilyen eltérés.
+- Az automatikus ütemezés előnézete megszámolja az eltéréseket, és a lenyitott
+  címzettlistában a nyelvet és a tárgyat is mutatja.
+- A Kontaktok oldalon a „Queue” szűrő a „Mind / Benne van / Nincs benne”
+  mellett konkrét queue-t is kínál, nap szerint csoportosítva: elöl a mai és a
+  közelgő napok a legközelebbivel kezdve, alattuk a múltbeliek: `HH.NN. – fiók – queue neve (darab)`.
+
+- A tömeges szövegcsere mezőválasztójában új pont: „Lead nyelve”. Ilyenkor a
+  bal oldalon sablon helyett legördülő van (magyar / angol), az előnézet
+  cégenként mutatja a változást („angol → magyar”), a „Mentés” pedig csak a
+  sor nyelvét írja át — a levél szövegét nem. Akinek már ez a nyelve, kimarad.
+
+- Az ékezetes csatolmánynevek egységes (NFC) alakban kerülnek a jegyzékbe és a
+  queue-kba, a küldő pedig akkor is megtalálja a fájlt, ha a lemezen más
+  alakban áll (macOS: bontva, Windows: egyben). Eddig a két gép jegyzéke nem
+  egyezett: a kártya „nincs a jegyzékben” jelzést adott, Windowson pedig az
+  ilyen nevű csatolmány kimaradhatott a levélből.
 
 ## Érintett fájlok
 
-| Fájl                                                                          | Változás                                                        |
-| ----------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| `src/lib/warmup.ts`                                                           | Saját lépcsősor paraméter, `warmupStatus`, `cleanSteps`.        |
-| `src/lib/accountStore.ts`                                                     | `warmupSteps`, `warmupStart` tárolása és betöltése.             |
-| `src/lib/accounts.ts`                                                         | A fiók viszi a lépcsőit és a kezdését; az áttekintés az állást. |
-| `src/lib/sendCampaign.ts`, `queuePlan.ts`, `sendQueues.ts`, `autoSchedule.ts` | A fiók lépcsőit és kezdését használják.                         |
-| `src/app/api/mail-accounts/route.ts`                                          | `PATCH` új mezői.                                               |
-| `src/components/AccountsPanel.tsx`                                            | Állás és szerkesztő.                                            |
+| Fájl                                                                             | Változás                                                                                                    |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `src/lib/mailLanguage.ts`                                                        | Új. A nyelvi eltérés szabálya és adatbázis-szűrője.                                                         |
+| `src/lib/sendQueues.ts`                                                          | `QueueInfo.mismatched` (egy összesítés minden queue-ra); a queue-névlista viszi a fiókokat és az állapotot. |
+| `src/lib/autoSchedule.ts`                                                        | `AutoPlan.mismatched`; a címzettnevek mellé nyelv, ország, tárgy.                                           |
+| `src/components/QueuesPanel.tsx`                                                 | Levél a címzettlistában, figyelmeztetés a kártyán.                                                          |
+| `src/components/AutoSchedulePanel.tsx`                                           | Figyelmeztetés és nyelv az előnézetben.                                                                     |
+| `src/components/FilterBar.tsx`, `Dashboard.tsx`                                  | Queue szerinti szűrés.                                                                                      |
+| `src/lib/attachments.ts`                                                         | Egységes névalak, kódolástól független fájlkeresés.                                                         |
+| `src/components/BulkTemplate.tsx`, `src/app/api/contacts/bulk-template/route.ts` | „Lead nyelve” mező: nyelv átállítása előnézettel.                                                           |
 
 ## Interfészek
 
-- `PATCH /api/mail-accounts` `{ id, warmupSteps?: [{ untilDay, cap }] | null,
-warmupStart?: "ÉÉÉÉ-HH-NN" | "now" | null }`. Lépcső: legfeljebb 12; a napok
-  szigorúan nőnek (≤ 365); napi darabszám 1–100.
-- `mail_account_settings.warmupSteps`, `.warmupStart` (hiányzik = alapértelmezés).
-- `AccountOverview.warmupStatus`: lépcsők, saját-e, kezdés, nap, mostani
-  lépcső, mai plafon.
+- `QueueInfo.mismatched: number`, `AutoPlan.mismatched: number`.
+- `GET /api/queues?brief=1` queue-sorai: `+ status, accounts: string[]`.
+- A kontaktlista meglévő `queueId` szűrője a felületről is elérhető.
+- `POST /api/contacts/bulk-template` `{ ids, field: "language", value: "hu" | "en", mode }`.
 
 ## Hatókörön kívül
 
-- Globális (minden fiókra érvényes) alapértelmezés szerkesztése.
-- A felfuttatás automatikus visszaléptetése hiba vagy visszapattanás esetén.
+- A rossz nyelvű levelek kijavítása (adatmódosítás) és a kiküldés tiltása
+  nyelvi eltérésnél — ez a változat csak megmutatja.
+- A levél szerkesztése a listából (a cég nevére kattintva a kontakt panelje
+  nyílik, ott szerkeszthető).
 
 ## Feltételezések
 
-- A kezdés az első küldés; ha kézzel állítják, az felülírja.
-- Az utolsó lépcső után nincs felfuttatási plafon.
-- A darabszám lépcsőről lépcsőre csökkenhet is — szándékos visszavétel lehet.
+- „Illik”: magyar cégnek (`country = HU`) magyar levél; külföldinek nem magyar.
+- A szűrő listájába a 60 napnál nem régebbi queue-k kerülnek.
 
 ## Kockázat
 
-- A küldő gépen az új kód kell (`git pull` + újraindítás): a régi küldő a
-  beégetett lépcsőket használja, a felületen beállítottakat nem.
-- A futó küldés a beállítást a fiókadatok következő frissülésekor veszi át,
-  nem azonnal.
-- Túl meredek saját lépcsősor a fiók letiltását kockáztatja.
+- Csak megjelenítés és olvasó lekérdezések; a küldést nem érinti.
+- Az áttekintés egy új összesítést futtat a queue-ban lévő, ki nem ment
+  sorokon (a meglévő `in_queue` indexen).
 
 ## Ellenőrzés (end-to-end)
 
 1. `npm run typecheck`, `npm run lint` — hiba nélkül.
-2. Számítás alap és saját lépcsőkkel, újraindítás, a terv saját lépcsőkkel,
-   bemenet-ellenőrzés, mentés és visszaolvasás próbacímmel, API-hibák.
-3. Böngészőben 1440 és 390 px szélesen: állás a sorokban, szerkesztő.
+2. Csak olvasva: eltérések queue-nként, a szűrő listája, szűrés egy queue-ra,
+   az ütemező jelzése.
+3. Böngészőben 1280 és 390 px szélesen: címzettlista levéllel, queue-szűrő.

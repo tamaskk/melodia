@@ -12,6 +12,7 @@ import { publishAttachments } from "./attachmentIndex";
 import type { MailProvider } from "./accountStore";
 import { listContactIds } from "./contacts";
 import { createLogger } from "./logger";
+import { LANGUAGE_MISMATCH } from "./mailLanguage";
 import { getContacts, getDb } from "./mongodb";
 import {
   dayKey,
@@ -110,6 +111,8 @@ export interface QueueInfo {
   overflow: number;
   /** Lezáráskor ennyi került vissza a listába. */
   released: number;
+  /** Ennyi még ki nem ment címzettnél nem illik a levél nyelve a cég országához. */
+  mismatched: number;
   runDate: string;
   /** A kiválasztott csatolmányok; `null` = minden. */
   attachments: string[] | null;
@@ -336,12 +339,35 @@ export async function syncQueueMembership(): Promise<number> {
 
 /** Név, méret és a futás napja — a kiküldő panel választójához és a kontakt paneljéhez. */
 export async function listQueueNames(): Promise<
-  { id: string; name: string; total: number; runDate: string }[]
+  {
+    id: string;
+    name: string;
+    total: number;
+    runDate: string;
+    status: QueueStatus;
+    /** A bekötött fiókok címkéi — a szűrő ezzel írja ki, kié a queue. */
+    accounts: string[];
+  }[]
 > {
   const docs = await (await queues())
-    .aggregate<{ _id: ObjectId; name: string; total: number; runDate: string }>([
+    .aggregate<{
+      _id: ObjectId;
+      name: string;
+      total: number;
+      runDate: string;
+      status: QueueStatus;
+      accounts: QueueAccount[];
+    }>([
       { $sort: { createdAt: 1 } },
-      { $project: { name: 1, runDate: 1, total: { $size: "$contactIds" } } },
+      {
+        $project: {
+          name: 1,
+          runDate: 1,
+          status: 1,
+          "accounts.accountId": 1,
+          total: { $size: "$contactIds" },
+        },
+      },
     ])
     .toArray();
   return docs.map((doc) => ({
@@ -349,6 +375,10 @@ export async function listQueueNames(): Promise<
     name: doc.name,
     total: doc.total,
     runDate: doc.runDate,
+    status: doc.status,
+    accounts: (doc.accounts ?? []).map(
+      (bound) => getAccount(bound.accountId)?.label ?? bound.accountId,
+    ),
   }));
 }
 
@@ -616,7 +646,7 @@ export async function queueOverview(
   const older = { status: "kesz" as const, runDate: { $lt: closedFrom } };
 
   const collection = await getContacts();
-  const [docs, olderClosed, first, active, sent] = await Promise.all([
+  const [docs, olderClosed, first, active, sent, mismatches] = await Promise.all([
     (await queues())
       .find(options.allClosed ? {} : { $nor: [older] })
       .sort({ createdAt: 1 })
@@ -628,7 +658,21 @@ export async function queueOverview(
     sentByDay(
       new Date(now.getTime() - (PAST_DAYS + 1) * 86_400_000).toISOString(),
     ),
+    // Egyetlen összesítés minden queue-ra: hol megy nem illő nyelvű levél.
+    collection
+      .aggregate<{ _id: string; count: number }>([
+        {
+          $match: {
+            queueId: { $type: "string" },
+            sent: false,
+            ...LANGUAGE_MISMATCH,
+          },
+        },
+        { $group: { _id: "$queueId", count: { $sum: 1 } } },
+      ])
+      .toArray(),
   ]);
+  const mismatched = new Map(mismatches.map((row) => [row._id, row.count]));
 
   const counts = await Promise.all(
     docs.map((doc) =>
@@ -706,8 +750,11 @@ export async function queueOverview(
       }),
       overflow: live ? plan.leftover : 0,
       released: doc.released ?? 0,
+      mismatched: mismatched.get(id) ?? 0,
       runDate: doc.runDate,
-      attachments: doc.attachments ?? null,
+      // A korábban mentett kulcsok bontott (NFD) alakban is lehetnek.
+      attachments:
+        doc.attachments?.map((key) => key.normalize("NFC")) ?? null,
       weekends: doc.weekends === true,
       status: doc.status,
       loadedAt: doc.loadedAt ?? null,
@@ -932,9 +979,12 @@ function cleanAttachments(input: unknown): string[] | null {
   if (!Array.isArray(input)) return null;
   const keys = [
     ...new Set(
-      input.filter(
-        (key): key is string => typeof key === "string" && key.length > 0,
-      ),
+      input
+        .filter(
+          (key): key is string => typeof key === "string" && key.length > 0,
+        )
+        // Egységes alak: a jegyzék is így teszi közzé a neveket.
+        .map((key) => key.normalize("NFC")),
     ),
   ];
   if (!keys.length) {

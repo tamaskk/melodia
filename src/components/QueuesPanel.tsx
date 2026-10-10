@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AttachmentList } from "@/lib/attachmentIndex";
 import { fileSize, formatNumber } from "@/lib/format";
+import { languageLabel, languageMismatch } from "@/lib/mailLanguage";
 import type { QueueInfo, QueueOverview } from "@/lib/sendQueues";
 import { STAGE_BY_VALUE, stageOf } from "@/lib/stage";
 import type { ContactDoc } from "@/lib/types";
@@ -77,6 +78,8 @@ function QueueMembers({
   const [pageCount, setPageCount] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Mely címzettek levele van lenyitva a listában.
+  const [shown, setShown] = useState<string[]>([]);
   const [mailMode] = useMailMode();
   const [provider] = useSearchProvider(defaultProvider);
   // Elavult válasz ne írja felül a frisset.
@@ -179,12 +182,14 @@ function QueueMembers({
         <ul className="divide-y divide-[var(--border)] rounded-lg border border-[var(--border)]">
           {contacts.map((contact) => {
             const stage = STAGE_BY_VALUE[stageOf(contact)];
+            const wrong = languageMismatch(contact.country, contact.language);
+            const open = shown.includes(contact._id);
             return (
               <li key={contact._id}>
                 <button
                   type="button"
                   onClick={() => setOpenId(contact._id)}
-                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2 text-left text-sm transition hover:bg-[var(--surface-2)]"
+                  className="flex w-full flex-wrap items-center gap-x-3 gap-y-0.5 px-3 pt-2 text-left text-sm transition hover:bg-[var(--surface-2)]"
                 >
                   <span className="min-w-0 max-w-full truncate font-medium text-blue-400">
                     {contact.company}
@@ -203,6 +208,47 @@ function QueueMembers({
                     {stage.label}
                   </span>
                 </button>
+                {/* Ami ennek a cégnek kimegy: nyelv, tárgy, lenyitva a teljes szöveg. */}
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() =>
+                    setShown((current) =>
+                      open
+                        ? current.filter((id) => id !== contact._id)
+                        : [...current, contact._id],
+                    )
+                  }
+                  className="flex w-full flex-wrap items-baseline gap-x-2 px-3 pb-2 pt-0.5 text-left text-xs transition hover:bg-[var(--surface-2)]"
+                >
+                  <span
+                    className={`shrink-0 rounded border px-1.5 py-0.5 text-[11px] ${
+                      wrong
+                        ? "border-amber-500/50 bg-amber-500/10 text-amber-300"
+                        : "border-[var(--border)] text-[var(--muted)]"
+                    }`}
+                  >
+                    {languageLabel(contact.language)} levél
+                    {wrong ? ` — ${wrong}` : ""}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate text-[var(--muted)]">
+                    {contact.emailSubject || "(nincs tárgy)"}
+                  </span>
+                  <span className="shrink-0 text-[var(--muted)]">
+                    {open ? "▲" : "levél ▼"}
+                  </span>
+                </button>
+                {open ? (
+                  <div className="space-y-1 border-t border-[var(--border)] bg-[var(--surface-2)]/40 px-3 py-2 text-xs">
+                    <p className="font-medium [overflow-wrap:anywhere]">
+                      {contact.emailSubject || "(nincs tárgy)"}
+                    </p>
+                    <p className="whitespace-pre-wrap text-[var(--muted)] [overflow-wrap:anywhere]">
+                      {contact.emailBody ||
+                        "(nincs szöveg — ez a levél nem megy ki)"}
+                    </p>
+                  </div>
+                ) : null}
               </li>
             );
           })}
@@ -695,6 +741,13 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
                       })
               }
             />
+            {queue.mismatched ? (
+              <p className="text-xs text-amber-300">
+                {formatNumber(queue.mismatched)} címzettnél a levél nyelve nem
+                illik a cég országához (pl. magyar cég angol levelet kap) — a
+                Címzettek listában sárgával jelölve.
+              </p>
+            ) : null}
             {queue.status === "varakozik" ? (
               <p className="text-xs text-[var(--muted)]">
                 A lokális szerver indítja el a futás napján, 7 és 19 óra között.

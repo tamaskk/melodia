@@ -13,6 +13,7 @@ import { ObjectId } from "mongodb";
 import { getAccount, listAccounts } from "./accounts";
 import type { MailProvider } from "./accountStore";
 import { listContactIds } from "./contacts";
+import { LANGUAGE_MISMATCH } from "./mailLanguage";
 import { getContacts } from "./mongodb";
 import {
   dayKey,
@@ -82,6 +83,8 @@ export interface AutoPlan {
   capped: boolean;
   placed: number;
   leftover: number;
+  /** Az elhelyezett címzettek közül ennyinél nem illik a levél nyelve a cég országához. */
+  mismatched: number;
   /** Az utolsó nap, amire jutott címzett. */
   lastDay: string | null;
   days: { day: string; queues: AutoQueue[] }[];
@@ -241,6 +244,17 @@ export async function planAutoSchedule(
     out.pop();
   }
 
+  const mismatched = offset
+    ? await (
+        await getContacts()
+      ).countDocuments({
+        _id: {
+          $in: leads.slice(0, offset).map((id) => new ObjectId(id)),
+        },
+        ...LANGUAGE_MISMATCH,
+      } as never)
+    : 0;
+
   return {
     mode,
     from,
@@ -249,6 +263,7 @@ export async function planAutoSchedule(
     capped,
     placed: offset,
     leftover: leads.length - offset,
+    mismatched,
     lastDay,
     days: out,
   };
@@ -297,9 +312,16 @@ export async function applyAutoSchedule(input: AutoScheduleInput): Promise<{
 }
 
 /** Néhány címzett neve és címe az előnézethez — a kért sorrendben. */
-export async function leadNames(
-  ids: unknown,
-): Promise<{ id: string; company: string; email: string | null }[]> {
+export async function leadNames(ids: unknown): Promise<
+  {
+    id: string;
+    company: string;
+    email: string | null;
+    country: string | null;
+    language: string | null;
+    subject: string;
+  }[]
+> {
   const wanted = (Array.isArray(ids) ? ids : [])
     .filter(
       (id): id is string => typeof id === "string" && ObjectId.isValid(id),
@@ -309,14 +331,29 @@ export async function leadNames(
     await getContacts()
   )
     .find({ _id: { $in: wanted.map((id) => new ObjectId(id)) } } as never, {
-      projection: { company: 1, primaryEmail: 1 },
+      projection: {
+        company: 1,
+        primaryEmail: 1,
+        country: 1,
+        language: 1,
+        emailSubject: 1,
+      },
     })
     .toArray();
   const byId = new Map(docs.map((doc) => [doc._id.toString(), doc]));
   return wanted.flatMap((id) => {
     const doc = byId.get(id);
     return doc
-      ? [{ id, company: doc.company, email: doc.primaryEmail ?? null }]
+      ? [
+          {
+            id,
+            company: doc.company,
+            email: doc.primaryEmail ?? null,
+            country: doc.country ?? null,
+            language: doc.language ?? null,
+            subject: doc.emailSubject ?? "",
+          },
+        ]
       : [];
   });
 }
