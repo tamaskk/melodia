@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AutoPlan, AutoQueue } from "@/lib/autoSchedule";
 import { fileSize, formatNumber } from "@/lib/format";
+import { languageLabel, languageMismatch } from "@/lib/mailLanguage";
 import { button, field } from "./ui";
 
 interface Account {
@@ -22,6 +23,9 @@ interface Lead {
   id: string;
   company: string;
   email: string | null;
+  country: string | null;
+  language: string | null;
+  subject: string;
 }
 
 const LABEL = "block text-[11px] uppercase tracking-wider text-[var(--muted)]";
@@ -448,6 +452,14 @@ export default function AutoSchedulePanel({
                     : "a tervezhető napokon nincs több hely."}
                 </p>
               ) : null}
+              {plan.mismatched ? (
+                <p className="text-sm text-amber-300">
+                  {formatNumber(plan.mismatched)} címzettnél a levél nyelve nem
+                  illik a cég országához (pl. magyar cég angol levelet kapna).
+                  Lenyitva a sorokat sárgával jelölve látod őket — elfogadás
+                  előtt érdemes rendbe tenni.
+                </p>
+              ) : null}
               {plan.capped ? (
                 <p className="text-sm text-amber-300">
                   A szűrésben ennél több címzett van — egy futtatás legfeljebb{" "}
@@ -520,14 +532,27 @@ export default function AutoSchedulePanel({
                           </p>
                           {leads[key] ? (
                             <ol className="list-decimal space-y-0.5 pl-6">
-                              {leads[key].map((lead) => (
-                                <li key={lead.id} className="break-all">
-                                  {lead.company}{" "}
-                                  <span className="text-[var(--muted)]">
-                                    {lead.email}
-                                  </span>
-                                </li>
-                              ))}
+                              {leads[key].map((lead) => {
+                                const wrong = languageMismatch(
+                                  lead.country,
+                                  lead.language,
+                                );
+                                return (
+                                  <li key={lead.id} className="break-all">
+                                    {lead.company}{" "}
+                                    <span className="text-[var(--muted)]">
+                                      {lead.email}
+                                    </span>
+                                    <span
+                                      className={`block ${wrong ? "text-amber-300" : "text-[var(--muted)]"}`}
+                                    >
+                                      {languageLabel(lead.language)} levél
+                                      {wrong ? ` — ${wrong}` : ""}:{" "}
+                                      {lead.subject || "(nincs tárgy)"}
+                                    </span>
+                                  </li>
+                                );
+                              })}
                             </ol>
                           ) : (
                             <p className="text-[var(--muted)]">Betöltés…</p>

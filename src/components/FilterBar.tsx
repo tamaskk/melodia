@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Combobox from "./Combobox";
 import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
 import { COUNTRIES } from "@/lib/countries";
@@ -196,6 +196,118 @@ const YES_NO = [
   { value: "yes", label: "Igen" },
   { value: "no", label: "Nem" },
 ];
+
+interface QueueOption {
+  id: string;
+  name: string;
+  total: number;
+  runDate: string;
+  status: string;
+  accounts: string[];
+}
+
+/** Ennél régebbi queue-k nem kerülnek a szűrő listájába. */
+const QUEUE_DAYS = 60;
+
+/** „10.10. szombat" — a naptári nap, időzóna-csúszás nélkül. */
+const queueDay = (day: string) =>
+  `${day.slice(5).replace("-", ".")}. ` +
+  new Date(`${day}T12:00:00Z`).toLocaleDateString("hu-HU", {
+    timeZone: "UTC",
+    weekday: "long",
+  });
+
+/**
+ * Queue-szűrő: benne van / nincs benne, vagy egy konkrét queue — ezek nap
+ * szerint csoportosítva, a legközelebbi nappal kezdve, a fiókkal együtt kiírva.
+ */
+function QueueSelect({
+  inQueue,
+  queueId,
+  onChange,
+}: {
+  inQueue: string;
+  queueId: string;
+  onChange: (patch: Partial<ContactFilters>) => void;
+}) {
+  const [queues, setQueues] = useState<QueueOption[]>([]);
+  // A legrégebbi nap, ami még a listába kerül — a betöltés pillanatához mérve.
+  const [oldest, setOldest] = useState("");
+  const [today, setToday] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    const timer = setTimeout(() => {
+      fetch("/api/queues?brief=1", { cache: "no-store" })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (!alive || !data) return;
+          setQueues((data.queues ?? []) as QueueOption[]);
+          setToday(new Date().toISOString().slice(0, 10));
+          setOldest(
+            new Date(Date.now() - QUEUE_DAYS * 86_400_000)
+              .toISOString()
+              .slice(0, 10),
+          );
+        })
+        // A lista nélkül a szűrő két alapállása ugyanúgy működik.
+        .catch(() => undefined);
+    }, 0);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const days = new Map<string, QueueOption[]>();
+  for (const queue of queues) {
+    // A kiválasztott queue akkor is látszik, ha már régi.
+    if (queue.runDate < oldest && queue.id !== queueId) continue;
+    days.set(queue.runDate, [...(days.get(queue.runDate) ?? []), queue]);
+  }
+  // Elöl a mai és a közelgő napok, a legközelebbivel kezdve; alattuk a múlt,
+  // a legutóbbitól visszafelé.
+  const sorted = [...days.entries()].sort(([a], [b]) => {
+    const upcoming = Number(b >= today) - Number(a >= today);
+    if (upcoming) return upcoming;
+    return a >= today ? a.localeCompare(b) : b.localeCompare(a);
+  });
+
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[11px] uppercase tracking-wider text-[var(--muted)]">
+        Queue
+      </span>
+      <select
+        className={SELECT_CLASS}
+        value={queueId ? `q:${queueId}` : inQueue}
+        onChange={(event) => {
+          const value = event.target.value;
+          // A kettő kizárja egymást: vagy az általános állás, vagy egy queue.
+          onChange(
+            value.startsWith("q:")
+              ? { inQueue: "", queueId: value.slice(2) }
+              : { inQueue: value as ContactFilters["inQueue"], queueId: "" },
+          );
+        }}
+      >
+        <option value="">Mind</option>
+        <option value="yes">Benne van</option>
+        <option value="no">Nincs benne</option>
+        {sorted.map(([day, list]) => (
+          <optgroup key={day} label={queueDay(day)}>
+            {list.map((queue) => (
+              <option key={queue.id} value={`q:${queue.id}`}>
+                {day.slice(5).replace("-", ".")}. – {queue.accounts.join(", ")}{" "}
+                – {queue.name} ({queue.total})
+              </option>
+            ))}
+          </optgroup>
+        ))}
+      </select>
+    </label>
+  );
+}
 
 export default function FilterBar({
   filters,
@@ -462,17 +574,10 @@ export default function FilterBar({
               }
               options={YES_NO}
             />
-            <Select
-              label="Queue"
-              value={filters.inQueue ?? ""}
-              onChange={(inQueue) =>
-                onChange({ inQueue: inQueue as ContactFilters["inQueue"] })
-              }
-              options={[
-                { value: "", label: "Mind" },
-                { value: "yes", label: "Benne van" },
-                { value: "no", label: "Nincs benne" },
-              ]}
+            <QueueSelect
+              inQueue={filters.inQueue ?? ""}
+              queueId={filters.queueId ?? ""}
+              onChange={onChange}
             />
             <Select
               label="Rendezés"
