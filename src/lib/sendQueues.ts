@@ -12,6 +12,7 @@ import { publishAttachments } from "./attachmentIndex";
 import type { MailProvider } from "./accountStore";
 import { listContactIds } from "./contacts";
 import { createLogger } from "./logger";
+import { claimSender, isSender, VIEWER_MESSAGE } from "./role";
 import { LANGUAGE_MISMATCH } from "./mailLanguage";
 import { getContacts, getDb } from "./mongodb";
 import {
@@ -30,12 +31,6 @@ import type { Contact, ContactFilters } from "./types";
 
 const log = createLogger("queue");
 
-/**
- * Telepített (serverless) példány: itt queue nem indul és nem fut — a küldés
- * hosszan élő folyamatot kíván (lásd `sendCampaign.ts`). Ezt az őrfeltételt ne
- * vedd ki.
- */
-const SERVERLESS = Boolean(process.env.VERCEL);
 
 /** Ennyi címzett fér egy queue-ba — efölött a lista kezelhetetlenül lassú lenne. */
 const MAX_CONTACTS = 5000;
@@ -939,16 +934,11 @@ async function load(
   }
 }
 
-/** Kézi indítás — csak a lokális szerveren; a telepített példány nem küld. */
+/** Kézi indítás — csak a küldő gépen; a néző példány nem küld. */
 export async function startQueue(
   id: string,
 ): Promise<{ started: string[]; skipped: string[]; message: string }> {
-  if (SERVERLESS) {
-    throw new Error(
-      "A telepített példány nem küld levelet. Hagyd a queue-t várakozó állapotban: " +
-        "a lokális szerver 7 és 19 óra között magától elindítja.",
-    );
-  }
+  if (!isSender()) throw new Error(VIEWER_MESSAGE);
   if (!ObjectId.isValid(id)) throw new Error("Nincs ilyen queue.");
   const result = await load(id, ["varakozik", "leallitva"]);
   if (!result) {
@@ -1130,11 +1120,19 @@ export async function tickQueues(now = new Date()): Promise<TickResult> {
     released: [],
     errors: [],
   };
-  if (SERVERLESS) {
+  if (!isSender()) {
     return {
       ...result,
       ran: false,
-      reason: "Telepített példány — queue csak a lokális szerveren fut.",
+      reason: "Néző példány — queue csak a küldő gépen fut.",
+    };
+  }
+  // Életjel, és egyben annak ellenőrzése, hogy nincs másik élő küldő.
+  if (!(await claimSender(now))) {
+    return {
+      ...result,
+      ran: false,
+      reason: "Másik küldő gép aktív — ez a gép most nem ütemez.",
     };
   }
 
@@ -1209,10 +1207,10 @@ const timers = globalThis as typeof globalThis & {
 
 /**
  * Az ütemező elindítása: 10 percenként egy ellenőrző kör. A szerver indulásakor
- * hívjuk egyszer. Telepített példányon el sem indul.
+ * hívjuk egyszer. Néző példányon el sem indul.
  */
 export function startQueueRunner(): boolean {
-  if (SERVERLESS) return false;
+  if (!isSender()) return false;
   if (timers.__melodiaQueueTimer) return true;
 
   const run = () => {

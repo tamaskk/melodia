@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { AttachmentList } from "@/lib/attachmentIndex";
+import type { SenderStatus } from "@/lib/role";
 import { fileSize, formatNumber } from "@/lib/format";
 import { languageLabel, languageMismatch } from "@/lib/mailLanguage";
 import type { QueueInfo, QueueOverview } from "@/lib/sendQueues";
@@ -436,7 +437,10 @@ function QueueDays({
 }
 
 /** A queue-k áttekintése a küldő gép csatolmány-jegyzékével együtt. */
-type Overview = QueueOverview & { attachments?: AttachmentList };
+type Overview = QueueOverview & {
+  attachments?: AttachmentList;
+  sender?: SenderStatus | null;
+};
 
 /**
  * Mely fájlok mennek a queue leveleivel, név szerint: a kiválasztottak, vagy —
@@ -858,6 +862,33 @@ export default function QueuesPanel(panelOptions: PanelOptions) {
           listából.
         </p>
       </header>
+
+      {data ? (
+        data.sender?.alive ? (
+          <p className="text-xs text-[var(--muted)]">
+            Küldő gép:{" "}
+            <span className="text-foreground">{data.sender.host}</span> · utolsó
+            életjel{" "}
+            {new Date(data.sender.at).toLocaleTimeString("hu-HU", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </p>
+        ) : (
+          <p
+            role="alert"
+            className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300"
+          >
+            Nincs élő küldő gép
+            {data.sender
+              ? ` — az utolsó életjel: ${data.sender.host}, ${new Date(data.sender.at).toLocaleString("hu-HU")}`
+              : ""}
+            . A queue-k addig nem indulnak el. A küldő gépen az
+            atlas-credentials.env-ben <code>MELODIA_ROLE=kuldo</code> kell, és
+            futnia kell rajta a szervernek.
+          </p>
+        )
+      ) : null}
 
       {error ? (
         <p

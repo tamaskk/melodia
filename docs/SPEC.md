@@ -1,80 +1,69 @@
-# SPEC — Kimenő levél a címzettlistában, queue szerinti szűrés
+# SPEC — Küldő és néző gép
 
 Dátum: 2026-10-10 · Állapot: kész
 
 ## Cél
 
-Kiküldés előtt látszódjon, melyik cégnek milyen levél megy, és legyen
-megjelölve, ha a levél nyelve nem illik a cég országához. 2026-10-10-én két
-magyar cég angol levelet kapott: az adatbázisban a sorukon angol levél állt,
-és ezt a queue-ban semmi nem mutatta. Emellett a Kontaktok listája legyen
-szűrhető egy konkrét queue-ra.
+Egyszerre csak egy gép küldhessen levelet, és ez a beállításokból derüljön
+ki. Eddig minden nem-Vercel példány küldő volt: egy fejlesztésre elindított
+`npm run dev` ugyanúgy ütemezett és küldött, mint az igazi küldő gép, a kettő
+felváltva írta felül a csatolmány-jegyzéket, és elvehették egymástól a
+fiókokat.
 
 ## Megfigyelhető viselkedés
 
-- A Queue-k oldalon egy queue Címzettek listájában minden cég alatt látszik a
-  levél nyelve és tárgya; a sorra kattintva lenyílik a teljes szöveg.
-- Ha a nyelv nem illik az országhoz (magyar cégnek nem magyar levél, vagy
-  külföldinek magyar), a sor sárga jelölést kap az okkal.
-- A queue kártyája kiírja, hány még ki nem ment címzettnél van ilyen eltérés.
-- Az automatikus ütemezés előnézete megszámolja az eltéréseket, és a lenyitott
-  címzettlistában a nyelvet és a tárgyat is mutatja.
-- A Kontaktok oldalon a „Queue” szűrő a „Mind / Benne van / Nincs benne”
-  mellett konkrét queue-t is kínál, nap szerint csoportosítva: elöl a mai és a
-  közelgő napok a legközelebbivel kezdve, alattuk a múltbeliek: `HH.NN. – fiók – queue neve (darab)`.
-
-- A tömeges szövegcsere mezőválasztójában új pont: „Lead nyelve”. Ilyenkor a
-  bal oldalon sablon helyett legördülő van (magyar / angol), az előnézet
-  cégenként mutatja a változást („angol → magyar”), a „Mentés” pedig csak a
-  sor nyelvét írja át — a levél szövegét nem. Akinek már ez a nyelve, kimarad.
-
-- Az ékezetes csatolmánynevek egységes (NFC) alakban kerülnek a jegyzékbe és a
-  queue-kba, a küldő pedig akkor is megtalálja a fájlt, ha a lemezen más
-  alakban áll (macOS: bontva, Windows: egyben). Eddig a két gép jegyzéke nem
-  egyezett: a kártya „nincs a jegyzékben” jelzést adott, Windowson pedig az
-  ilyen nevű csatolmány kimaradhatott a levélből.
+- Adott egy gép `MELODIA_ROLE=kuldo` beállítással az `atlas-credentials.env`-ben,
+  akkor küldő: ütemez, folytat, küld, közzéteszi a csatolmány-jegyzéket.
+- Adott egy gép a beállítás nélkül (vagy más értékkel), vagy a telepített
+  példány, akkor néző: a küldés indítása érthető hibát ad, az ütemező nem fut,
+  a félbehagyott küldések nem folytatódnak, a jegyzéket nem írja, hanem a
+  küldő gépét olvassa.
+- Adott két küldőnek beállított gép, akkor az a küldő, amelyik előbb indult;
+  a másik nem küld, amíg az első életjele (25 perc) le nem jár.
+- A Queue-k oldal teteje kiírja a küldő gép nevét és utolsó életjelét, vagy
+  figyelmeztet, ha nincs élő küldő.
+- Induláskor a napló első sorai között áll a szerep.
+- Induláskor előbb folytatódnak a félbehagyott küldések, és csak utána indul
+  az ütemező.
 
 ## Érintett fájlok
 
-| Fájl                                                                             | Változás                                                                                                    |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| `src/lib/mailLanguage.ts`                                                        | Új. A nyelvi eltérés szabálya és adatbázis-szűrője.                                                         |
-| `src/lib/sendQueues.ts`                                                          | `QueueInfo.mismatched` (egy összesítés minden queue-ra); a queue-névlista viszi a fiókokat és az állapotot. |
-| `src/lib/autoSchedule.ts`                                                        | `AutoPlan.mismatched`; a címzettnevek mellé nyelv, ország, tárgy.                                           |
-| `src/components/QueuesPanel.tsx`                                                 | Levél a címzettlistában, figyelmeztetés a kártyán.                                                          |
-| `src/components/AutoSchedulePanel.tsx`                                           | Figyelmeztetés és nyelv az előnézetben.                                                                     |
-| `src/components/FilterBar.tsx`, `Dashboard.tsx`                                  | Queue szerinti szűrés.                                                                                      |
-| `src/lib/attachments.ts`                                                         | Egységes névalak, kódolástól független fájlkeresés.                                                         |
-| `src/components/BulkTemplate.tsx`, `src/app/api/contacts/bulk-template/route.ts` | „Lead nyelve” mező: nyelv átállítása előnézettel.                                                           |
+| Fájl                                                             | Változás                                               |
+| ---------------------------------------------------------------- | ------------------------------------------------------ |
+| `src/lib/role.ts`                                                | Új. Szerep, gépnév, életjel, a szerep lefoglalása.     |
+| `src/lib/sendCampaign.ts`, `sendQueues.ts`, `attachmentIndex.ts` | A küldés őrfeltétele a szerep, nem a `VERCEL` változó. |
+| `src/instrumentation.ts`                                         | Szerep a naplóba; folytatás az ütemező előtt.          |
+| `src/app/api/queues/route.ts`, `src/components/QueuesPanel.tsx`  | A küldő gép állapota a Queue-k oldalon.                |
+| `docs/EMAIL-KULDES.md`                                           | A szerep leírása.                                      |
 
 ## Interfészek
 
-- `QueueInfo.mismatched: number`, `AutoPlan.mismatched: number`.
-- `GET /api/queues?brief=1` queue-sorai: `+ status, accounts: string[]`.
-- A kontaktlista meglévő `queueId` szűrője a felületről is elérhető.
-- `POST /api/contacts/bulk-template` `{ ids, field: "language", value: "hu" | "en", mode }`.
+- Beállítás: `MELODIA_ROLE` (`kuldo` | `küldő` | `sender` = küldő; minden más
+  néző), `MELODIA_NAME` (a gép neve; alapból a hosztnév).
+- `app_state` új dokumentum: `{ _id: "sender", host, at }`.
+- `GET /api/queues` válasza: `+ sender: { host, at, alive } | null`.
 
 ## Hatókörön kívül
 
-- A rossz nyelvű levelek kijavítása (adatmódosítás) és a kiküldés tiltása
-  nyelvi eltérésnél — ez a változat csak megmutatja.
-- A levél szerkesztése a listából (a cég nevére kattintva a kontakt panelje
-  nyílik, ott szerkeszthető).
+- A küldő szerep átadása a felületről; kézi „átveszem” gomb.
+- A Gmail-szinkron és az e-mail keresés szerephez kötése (ezek nem küldenek).
 
 ## Feltételezések
 
-- „Illik”: magyar cégnek (`country = HU`) magyar levél; külföldinek nem magyar.
-- A szűrő listájába a 60 napnál nem régebbi queue-k kerülnek.
+- Az alapértelmezés a néző: küldeni csak kifejezett beállítással lehet.
+- Az életjel az ütemező körével megy (10 perc), 25 percig számít élőnek.
 
 ## Kockázat
 
-- Csak megjelenítés és olvasó lekérdezések; a küldést nem érinti.
-- Az áttekintés egy új összesítést futtat a queue-ban lévő, ki nem ment
-  sorokon (a meglévő `in_queue` indexen).
+- **Frissítés után a mostani küldő gép néző lesz, amíg a beállítás nincs
+  megadva** — a queue-k nem indulnak. A Queue-k oldal ezt jelzi.
+- Ha a küldő gép váratlanul leáll, egy másik küldőnek beállított gép 25 perc
+  után veheti át.
 
 ## Ellenőrzés (end-to-end)
 
 1. `npm run typecheck`, `npm run lint` — hiba nélkül.
-2. Csak olvasva: eltérések queue-nként, a szűrő listája, szűrés egy queue-ra,
-   az ütemező jelzése.
-3. Böngészőben 1280 és 390 px szélesen: címzettlista levéllel, queue-szűrő.
+2. Néző gép: küldés, folytatás, ütemezés, queue-indítás elutasítva; a
+   jegyzéket nem írja.
+3. Küldő szerep: lefoglalás, megújítás, második gép elutasítása, lejárt
+   életjel utáni átvétel.

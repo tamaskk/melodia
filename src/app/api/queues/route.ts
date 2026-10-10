@@ -11,6 +11,7 @@ import {
   stopQueue,
 } from "@/lib/sendQueues";
 import { availableAttachments } from "@/lib/attachmentIndex";
+import { senderStatus } from "@/lib/role";
 import type { ContactFilters } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest) {
       accounts: publicAccounts(),
       // A kártyák ebből írják ki név szerint, mi megy a levelekkel.
       attachments: await availableAttachments(),
+      // Van-e élő küldő gép — nélküle a queue-k nem indulnak el.
+      sender: await senderStatus(),
     });
   } catch (error) {
     return NextResponse.json(

@@ -45,22 +45,31 @@ export async function register() {
   // A telepített példány ebből a jegyzékből kínálja a csatolmányokat.
   void (await import("@/lib/attachmentIndex")).publishAttachments();
 
-  // Queue-ütemező: 10 percenként felveszi az esedékes queue-kat (csak lokálisan).
-  const { startQueueRunner, syncQueueMembership } = await import(
-    "@/lib/sendQueues"
-  );
-  // Csak a küldő gépen: a telepített példány minden hidegindításnál lefuttatná.
-  if (!process.env.VERCEL) {
+  const { claimSender, isSender, machineName } = await import("@/lib/role");
+  // A szerep az első, amit a naplóban látni kell: ettől függ, küld-e ez a gép.
+  if (!isSender()) {
+    log.warn(
+      process.env.VERCEL
+        ? "szerep: NÉZŐ (telepített példány) — innen nem megy levél"
+        : "szerep: NÉZŐ — ez a gép nem küld és nem ütemez. Küldő géphez: " +
+            "MELODIA_ROLE=kuldo az atlas-credentials.env-ben, majd újraindítás.",
+    );
+  } else if (await claimSender()) {
+    log.info(`szerep: KÜLDŐ (${machineName()})`);
+  }
+
+  const { startQueueRunner, syncQueueMembership } =
+    await import("@/lib/sendQueues");
+  // Csak a küldő gépen: a néző minden indulásnál feleslegesen lefuttatná.
+  if (isSender()) {
     void syncQueueMembership().catch((error: Error) =>
       log.warn(`queue-tagság pótlása nem sikerült: ${error.message}`),
     );
   }
-  log.info(
-    startQueueRunner()
-      ? "queue-ütemező fut: 10 percenként, indítás 7 és 19 óra között"
-      : "queue-ütemező kikapcsolva (telepített példány)",
-  );
 
+  // Előbb a félbehagyott küldések folytatódnak, és csak utána indul az
+  // ütemező: különben az első kör szabadnak látna egy fiókot, amelyen épp
+  // folytatódna egy küldés, és másik queue-t tenne rá.
   try {
     const resumed = await resumeCampaigns();
     log.info(
@@ -71,4 +80,11 @@ export async function register() {
   } catch (error) {
     log.error("a folytatás nem sikerült", (error as Error).message);
   }
+
+  // Queue-ütemező: 10 percenként felveszi az esedékes queue-kat (csak a küldő gépen).
+  log.info(
+    startQueueRunner()
+      ? "queue-ütemező fut: 10 percenként, indítás 7 és 19 óra között"
+      : "queue-ütemező kikapcsolva (néző példány)",
+  );
 }

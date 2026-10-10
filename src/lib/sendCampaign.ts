@@ -61,22 +61,21 @@ import {
   summarize,
   type PreflightSummary,
 } from "./preflight";
+import { claimSender, isSender, VIEWER_MESSAGE } from "./role";
 import type { ContactDoc, ContactFilters } from "./types";
 
 const log = createLogger("kuldes");
 
 /**
- * Serverless környezet (Vercel): a függvény a válasz után leáll, és minden
- * kérés új példányban futhat. Egy órákig tartó, percenkénti szüneteket tartó
- * menet itt nem működik — sőt, több példány ugyanazt a sort folytatná, ami
- * dupla küldést okozhat. Ezért ott nem indítunk és nem folytatunk kampányt.
+ * Küldeni csak a küldő gép tud (`role.ts`). A telepített (serverless) példány
+ * azért nem, mert ott a függvény a válasz után leáll, és minden kérés új
+ * példányban futhat; egy második helyi gép pedig azért nem, mert két küldő
+ * ugyanazt a sort vinné — dupla küldés lenne belőle. Ezt az őrfeltételt ne
+ * vedd ki.
  */
-const SERVERLESS = Boolean(process.env.VERCEL);
-
-const SERVERLESS_MESSAGE =
-  "Ez a példány Vercelen (serverless) fut, ahol a háttérben futó, órákon át " +
-  "tartó kiküldés nem lehetséges: a függvény a válasz után leáll. A küldést " +
-  "futtasd a gépedről (npm run dev) — ugyanez a kód, ugyanaz az adatbázis.";
+const OTHER_SENDER_MESSAGE =
+  "Egy másik küldő gép aktív — egyszerre egy küldhet. Állítsd le azt, vagy " +
+  "várd meg, amíg az életjele lejár (kb. 25 perc).";
 
 export interface SentItem {
   company: string;
@@ -562,12 +561,11 @@ async function persist(runner: Runner): Promise<void> {
  * fiókot, amelyik futó állapotban maradt, ott vesz fel, ahol abbamaradt.
  */
 export async function resumeCampaigns(): Promise<number> {
-  if (SERVERLESS) {
-    log.info(
-      "serverless környezet — a félbehagyott menetek itt nem folytatódnak",
-    );
+  if (!isSender()) {
+    log.info("néző példány — a félbehagyott küldések itt nem folytatódnak");
     return 0;
   }
+  if (!(await claimSender())) return 0;
   if (!isMailerReady()) return 0;
 
   let resumed = 0;
@@ -1397,7 +1395,8 @@ export async function sendSelfTest(
 export async function startCampaign(
   options: CampaignOptions,
 ): Promise<CampaignState | { error: string }> {
-  if (SERVERLESS) return { error: SERVERLESS_MESSAGE };
+  if (!isSender()) return { error: VIEWER_MESSAGE };
+  if (!(await claimSender())) return { error: OTHER_SENDER_MESSAGE };
 
   const account = getAccount(options.accountId);
   if (!account) {

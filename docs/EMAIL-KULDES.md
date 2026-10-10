@@ -38,20 +38,41 @@ A „szünet" egy megszakítható `setTimeout`. Ehhez olyan folyamat kell, ami
 - **Mindig futó szerver kell** (VPS + systemd) — lásd a 3. részt.
 - **Egyszerre egyetlen példány futhat.** Két példány ugyanazt a sort küldené.
 
+### 1.1/a Küldő és néző gép
+
+Levelet küldeni, queue-t ütemezni és a csatolmány-jegyzéket közzétenni csak a
+**küldő** gép tud. Küldő az a gép, ahol az `atlas-credentials.env`-ben ez áll:
+
+```
+MELODIA_ROLE=kuldo
+```
+
+Minden más **néző**: a telepített (Vercel) példány mindig, és a helyi gép is,
+amíg a beállítás nincs megadva. A néző mindent lát és szerkeszthet, csak nem
+küld — egy fejlesztésre elindított `npm run dev` így nem kezd el párhuzamosan
+küldeni az igazi küldő mellett. (Az elfogadott értékek: `kuldo`, `küldő`,
+`sender`; a gép neve a `MELODIA_NAME` beállítással felülírható.)
+
+Egyszerre egy küldő lehet. A küldő az ütemező minden körében (10 percenként)
+életjelet ír az adatbázisba (`app_state`, `_id: "sender"`). Ha egy másik gép
+életjele 25 percnél frissebb, a később induló nem veszi át a szerepet: nem
+ütemez, nem folytat és nem indít küldést, és ezt a naplóba írja. A Queue-k
+oldal teteje mutatja, melyik gép a küldő, és figyelmeztet, ha egy sincs.
+
 ### 1.2 Az építőelemek
 
-| Modul | Feladata | Melodia-fájl |
-| --- | --- | --- |
-| Fiókok | A küldő fiókok listája, hitelesítő adatokkal | `src/lib/accounts.ts` |
-| Levélküldő | SMTP-kapcsolat fiókonként, egy levél elküldése | `src/lib/mailer.ts` |
-| Menet (runner) | A ciklus: sor, szünet, keret, leállítás, mentés | `src/lib/sendCampaign.ts` |
-| Munkaidő-ablak | A címzett helyi ideje szerint küld | `src/lib/sendWindow.ts` |
-| Felfuttatás | Új fiók napi plafonja hetente nő | `src/lib/warmup.ts` |
-| Címzett-szűrés | Ki kapott már levelet, címre és cégdomainre | `src/lib/recipients.ts` |
-| Küldés előtti ellenőrzés | Hiányos levél kiszűrése | `src/lib/preflight.ts` |
-| Folytatás induláskor | Újraindulás után felveszi a futó meneteket | `src/instrumentation.ts` |
-| Bejövő levelek | IMAP: válasz és visszapattanás figyelése | `src/lib/inbox.ts` |
-| API | Indítás, leállítás, állapot, próba | `src/app/api/contacts/send-campaign/route.ts` |
+| Modul                    | Feladata                                        | Melodia-fájl                                  |
+| ------------------------ | ----------------------------------------------- | --------------------------------------------- |
+| Fiókok                   | A küldő fiókok listája, hitelesítő adatokkal    | `src/lib/accounts.ts`                         |
+| Levélküldő               | SMTP-kapcsolat fiókonként, egy levél elküldése  | `src/lib/mailer.ts`                           |
+| Menet (runner)           | A ciklus: sor, szünet, keret, leállítás, mentés | `src/lib/sendCampaign.ts`                     |
+| Munkaidő-ablak           | A címzett helyi ideje szerint küld              | `src/lib/sendWindow.ts`                       |
+| Felfuttatás              | Új fiók napi plafonja hetente nő                | `src/lib/warmup.ts`                           |
+| Címzett-szűrés           | Ki kapott már levelet, címre és cégdomainre     | `src/lib/recipients.ts`                       |
+| Küldés előtti ellenőrzés | Hiányos levél kiszűrése                         | `src/lib/preflight.ts`                        |
+| Folytatás induláskor     | Újraindulás után felveszi a futó meneteket      | `src/instrumentation.ts`                      |
+| Bejövő levelek           | IMAP: válasz és visszapattanás figyelése        | `src/lib/inbox.ts`                            |
+| API                      | Indítás, leállítás, állapot, próba              | `src/app/api/contacts/send-campaign/route.ts` |
 
 Függőségek: `nodemailer` (SMTP), `imapflow` + `mailparser` (IMAP, csak ha
 válaszfigyelés is kell), MongoDB (bármilyen adatbázis megteszi).
@@ -97,16 +118,25 @@ async function run(runner) {
     //    Ha senkinél, alszunk a legkorábbi nyitásig (max. 15 perces darabokban).
     if (!options.ignoreWindow) {
       const pick = pickInsideWindow(runner);
-      if (pick.waitUntil) { await sleep(runner, untilOrMax15Min); continue; }
+      if (pick.waitUntil) {
+        await sleep(runner, untilOrMax15Min);
+        continue;
+      }
       moveToFront(runner.queue, pick.id);
     }
 
     // 4. A címzett friss állapota az adatbázisból — közvetlenül küldés előtt.
     const contact = await getContactById(runner.queue[0]);
-    if (!stillEligible(contact)) { runner.queue.shift(); continue; }
+    if (!stillEligible(contact)) {
+      runner.queue.shift();
+      continue;
+    }
 
     // 5. Nem küldött-e rá közben másik fiók (cím vagy cégdomain)?
-    if (await alreadyContacted(contact)) { runner.queue.shift(); continue; }
+    if (await alreadyContacted(contact)) {
+      runner.queue.shift();
+      continue;
+    }
 
     // 6. Az utolsó szó az adatbázisé: ha bárhonnan leállították, megállunk.
     if (await stopRequestedInDb(account.id)) break;
@@ -116,8 +146,12 @@ async function run(runner) {
     runner.queue.shift();
 
     // 8. Hibakezelés: három egymás utáni hiba → leáll „error" állapottal.
-    if (item.error) { if (++failuresInARow >= 3) return fail(runner); }
-    else { failuresInARow = 0; runner.sentToday += 1; }
+    if (item.error) {
+      if (++failuresInARow >= 3) return fail(runner);
+    } else {
+      failuresInARow = 0;
+      runner.sentToday += 1;
+    }
 
     // 9. Állapot mentése (sor, számlálók, következő időpont).
     await persist(runner);
@@ -160,8 +194,15 @@ perc, és a maximum sosem kisebb a minimumnál. Alapérték: **10–20 perc**.
 ```ts
 function sleep(runner, ms) {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => { runner.wake = null; resolve(); }, ms);
-    runner.wake = () => { clearTimeout(timer); runner.wake = null; resolve(); };
+    const timer = setTimeout(() => {
+      runner.wake = null;
+      resolve();
+    }, ms);
+    runner.wake = () => {
+      clearTimeout(timer);
+      runner.wake = null;
+      resolve();
+    };
   });
 }
 // leállításkor: runner.stopRequested = true; runner.wake?.();
@@ -176,12 +217,12 @@ Két korlát él egyszerre, a kisebb nyer:
 2. **Felfuttatási plafon** — egy új fiók ne küldjön rögtön sokat. Az **első
    sikeres küldés napjától** számítva:
 
-   | Időszak | Napi plafon |
-   | --- | --- |
-   | 1. hét (0–6. nap) | 10 |
-   | 2. hét (7–13. nap) | 20 |
-   | 3. hét (14–20. nap) | 30 |
-   | 21. naptól | nincs plafon, a beállított keret él |
+   | Időszak             | Napi plafon                         |
+   | ------------------- | ----------------------------------- |
+   | 1. hét (0–6. nap)   | 10                                  |
+   | 2. hét (7–13. nap)  | 20                                  |
+   | 3. hét (14–20. nap) | 30                                  |
+   | 21. naptól          | nincs plafon, a beállított keret él |
 
 ```ts
 const effective = cap === null ? dailyLimit : Math.min(dailyLimit, cap);
@@ -230,6 +271,7 @@ A sor összeállításakor, ebben a sorrendben:
 
    A közös szolgáltatók (gmail.com, outlook.com, …) nem számítanak
    cégdomainnek.
+
 4. **Küldés előtti ellenőrzés:** üres tárgy vagy szöveg, illetve kitöltetlen
    `{{mező}}` → a levél nem megy ki. Figyelmeztetés (de kimehet): általános
    postafiók, nyelvi eltérés, a domainről már visszapattant levél.
@@ -259,18 +301,18 @@ Fiókonként egy dokumentum a `campaigns` gyűjteményben:
 interface CampaignDoc {
   accountId: string;
   status: "idle" | "running" | "stopping" | "done" | "error";
-  options: CampaignOptions;   // napi keret, szünet, ablak, szűrők, mód
-  queue: string[];            // akik még hátra vannak
+  options: CampaignOptions; // napi keret, szünet, ablak, szűrők, mód
+  queue: string[]; // akik még hátra vannak
   sentToday: number;
-  dayStamp: string;           // melyik napra szól a számláló
+  dayStamp: string; // melyik napra szól a számláló
   processed: number;
   failed: number;
   startedAt: string | null;
-  nextAt: string | null;      // mikor megy a következő levél
-  message: string | null;     // emberi nyelvű állapot a felületre
-  recent: SentItem[];         // az utolsó 20 kiküldés
-  firstSendAt?: string;       // a felfuttatás kezdete
-  stopRequested?: boolean;    // csak a Leállítás írja, csak az indítás nullázza
+  nextAt: string | null; // mikor megy a következő levél
+  message: string | null; // emberi nyelvű állapot a felületre
+  recent: SentItem[]; // az utolsó 20 kiküldés
+  firstSendAt?: string; // a felfuttatás kezdete
+  stopRequested?: boolean; // csak a Leállítás írja, csak az indítás nullázza
   updatedAt: string;
 }
 ```
@@ -293,7 +335,9 @@ interface CampaignDoc {
   térkép lett: a Leállítás az üreset látta, a másikban a menet küldött tovább.
 
   ```ts
-  const shared = globalThis as typeof globalThis & { __runners?: Map<string, Runner> };
+  const shared = globalThis as typeof globalThis & {
+    __runners?: Map<string, Runner>;
+  };
   const runners = (shared.__runners ??= new Map());
   ```
 
@@ -326,29 +370,29 @@ interface CampaignDoc {
 
 Egy végpont, `action` mezővel **[Melodia]**:
 
-| Kérés | Mit csinál |
-| --- | --- |
-| `GET /api/…/send-campaign` | Fiókok (jelszó nélkül), minden menet állapota, csatolmányok. A felület ezt kérdezi le pár másodpercenként. |
-| `POST { action: "start", accountId, … }` | Sort épít, menti, a háttérben elindítja a ciklust. **A válasz nem várja meg a küldést.** |
-| `POST { action: "stop", accountId }` | Leállítás: adatbázisba ír, és felébreszti az alvó menetet. A folyamatban lévő levél még kimegy. |
-| `POST { action: "preview", … }` | Kiknek és mi menne ki. Nem küld. |
-| `POST { action: "test", accountId }` | SMTP-kapcsolat és jelszó ellenőrzése, levél nélkül. |
-| `POST { action: "self-test", accountId }` | Próbalevél a fiók **saját** címére, pontosan úgy, ahogy az éles kinézne. Semmit nem jelöl elküldöttnek. |
+| Kérés                                     | Mit csinál                                                                                                 |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `GET /api/…/send-campaign`                | Fiókok (jelszó nélkül), minden menet állapota, csatolmányok. A felület ezt kérdezi le pár másodpercenként. |
+| `POST { action: "start", accountId, … }`  | Sort épít, menti, a háttérben elindítja a ciklust. **A válasz nem várja meg a küldést.**                   |
+| `POST { action: "stop", accountId }`      | Leállítás: adatbázisba ír, és felébreszti az alvó menetet. A folyamatban lévő levél még kimegy.            |
+| `POST { action: "preview", … }`           | Kiknek és mi menne ki. Nem küld.                                                                           |
+| `POST { action: "test", accountId }`      | SMTP-kapcsolat és jelszó ellenőrzése, levél nélkül.                                                        |
+| `POST { action: "self-test", accountId }` | Próbalevél a fiók **saját** címére, pontosan úgy, ahogy az éles kinézne. Semmit nem jelöl elküldöttnek.    |
 
 Az indítás paraméterei:
 
-| Mező | Alap | Korlát | Jelentés |
-| --- | --- | --- | --- |
-| `accountId` | első fiók | | Melyik fiókból. |
-| `ids` / `filters` | | | Konkrét címzettek, vagy szűrő. |
-| `dailyLimit` | 18 | 1–100 | Napi maximum. |
-| `minMinutes` | 10 | 1–120 | Szünet alsó határa. |
-| `maxMinutes` | 20 | `minMinutes`–240 | Szünet felső határa. |
-| `windowFrom` / `windowTo` | 9 / 17 | 0–23 / 1–24 | Munkaidő-ablak, a címzett idejében. |
-| `ignoreWindow` | `false` | | Éjjel, hétvégén is. |
-| `testMode` | `false` | | Ablak nélkül, max. 3 levél. |
-| `allowSameDomain` | `false` | | Egy cégdomainre több levél is mehet. |
-| `mode` | `initial` | `initial` / `followup` | Első levél vagy follow-up. |
+| Mező                      | Alap      | Korlát                 | Jelentés                             |
+| ------------------------- | --------- | ---------------------- | ------------------------------------ |
+| `accountId`               | első fiók |                        | Melyik fiókból.                      |
+| `ids` / `filters`         |           |                        | Konkrét címzettek, vagy szűrő.       |
+| `dailyLimit`              | 18        | 1–100                  | Napi maximum.                        |
+| `minMinutes`              | 10        | 1–120                  | Szünet alsó határa.                  |
+| `maxMinutes`              | 20        | `minMinutes`–240       | Szünet felső határa.                 |
+| `windowFrom` / `windowTo` | 9 / 17    | 0–23 / 1–24            | Munkaidő-ablak, a címzett idejében.  |
+| `ignoreWindow`            | `false`   |                        | Éjjel, hétvégén is.                  |
+| `testMode`                | `false`   |                        | Ablak nélkül, max. 3 levél.          |
+| `allowSameDomain`         | `false`   |                        | Egy cégdomainre több levél is mehet. |
+| `mode`                    | `initial` | `initial` / `followup` | Első levél vagy follow-up.           |
 
 ### 1.14 Follow-up és válaszfigyelés (opcionális)
 
@@ -377,25 +421,25 @@ Gyűjtemény: `mail_accounts`.
 
 ```ts
 interface MailAccountDoc {
-  _id: ObjectId;              // EZ az azonosító mindenhol (nem az e-mail cím)
-  user: string;               // a belépési cím, kisbetűsítve; egyedi index
-  label: string;              // rövid név a felületen
-  fromName: string;           // a feladó megjelenő neve
+  _id: ObjectId; // EZ az azonosító mindenhol (nem az e-mail cím)
+  user: string; // a belépési cím, kisbetűsítve; egyedi index
+  label: string; // rövid név a felületen
+  fromName: string; // a feladó megjelenő neve
   replyTo: string | null;
 
   smtp: { host: string; port: number; secure: boolean };
-  imap: { host: string; port: number } | null;   // ha válaszfigyelés is kell
+  imap: { host: string; port: number } | null; // ha válaszfigyelés is kell
 
-  password: { iv: string; tag: string; data: string };  // titkosítva, lásd 2.2
+  password: { iv: string; tag: string; data: string }; // titkosítva, lásd 2.2
 
-  enabled: boolean;           // kikapcsolt fiókból nem indul menet
+  enabled: boolean; // kikapcsolt fiókból nem indul menet
 
   // Fiókonkénti alapértékek — indításkor ezek töltődnek be.
-  dailyLimit: number;         // pl. 18
-  minMinutes: number;         // pl. 10
-  maxMinutes: number;         // pl. 20
-  windowFrom: number;         // pl. 9
-  windowTo: number;           // pl. 17
+  dailyLimit: number; // pl. 18
+  minMinutes: number; // pl. 10
+  maxMinutes: number; // pl. 20
+  windowFrom: number; // pl. 9
+  windowTo: number; // pl. 17
 
   firstSendAt: string | null; // a felfuttatás kezdete
   lastVerifiedAt: string | null;
@@ -420,7 +464,8 @@ import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
 // 32 bájt, base64-ben. Generálás: openssl rand -base64 32
 const KEY = Buffer.from(process.env.MAIL_SECRET_KEY ?? "", "base64");
-if (KEY.length !== 32) throw new Error("MAIL_SECRET_KEY hiányzik vagy nem 32 bájt.");
+if (KEY.length !== 32)
+  throw new Error("MAIL_SECRET_KEY hiányzik vagy nem 32 bájt.");
 
 export function encrypt(plain: string) {
   const iv = randomBytes(12);
@@ -433,8 +478,16 @@ export function encrypt(plain: string) {
   };
 }
 
-export function decrypt(box: { iv: string; tag: string; data: string }): string {
-  const decipher = createDecipheriv("aes-256-gcm", KEY, Buffer.from(box.iv, "base64"));
+export function decrypt(box: {
+  iv: string;
+  tag: string;
+  data: string;
+}): string {
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    KEY,
+    Buffer.from(box.iv, "base64"),
+  );
   decipher.setAuthTag(Buffer.from(box.tag, "base64"));
   return Buffer.concat([
     decipher.update(Buffer.from(box.data, "base64")),
@@ -454,14 +507,14 @@ Szabályok:
 
 ### 2.3 API
 
-| Kérés | Mit csinál |
-| --- | --- |
-| `GET /api/mail-accounts` | Minden fiók, **jelszó nélkül**, a menet állapotával együtt. |
-| `POST /api/mail-accounts` | Új fiók. **Mentés előtt SMTP-ellenőrzés** (`transporter.verify()`): ha a belépés nem megy, nem mentünk, és megmondjuk, miért. |
-| `PATCH /api/mail-accounts/:id` | Módosítás. Ha `password` jön, újra ellenőriz és újratitkosít; ha nem jön, a régi marad. |
-| `POST /api/mail-accounts/:id/verify` | Kapcsolatpróba a tárolt adatokkal. |
-| `POST /api/mail-accounts/:id/self-test` | Próbalevél a fiók saját címére. |
-| `DELETE /api/mail-accounts/:id` | Törlés. Futó menetnél előbb leállítás; a `campaigns` dokumentum is törlődik. |
+| Kérés                                   | Mit csinál                                                                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/mail-accounts`                | Minden fiók, **jelszó nélkül**, a menet állapotával együtt.                                                                   |
+| `POST /api/mail-accounts`               | Új fiók. **Mentés előtt SMTP-ellenőrzés** (`transporter.verify()`): ha a belépés nem megy, nem mentünk, és megmondjuk, miért. |
+| `PATCH /api/mail-accounts/:id`          | Módosítás. Ha `password` jön, újra ellenőriz és újratitkosít; ha nem jön, a régi marad.                                       |
+| `POST /api/mail-accounts/:id/verify`    | Kapcsolatpróba a tárolt adatokkal.                                                                                            |
+| `POST /api/mail-accounts/:id/self-test` | Próbalevél a fiók saját címére.                                                                                               |
+| `DELETE /api/mail-accounts/:id`         | Törlés. Futó menetnél előbb leállítás; a `campaigns` dokumentum is törlődik.                                                  |
 
 Ezek az útvonalak jelszavakat fogadnak — **csak bejelentkezés mögött** legyenek
 elérhetők (lásd 3.8).
@@ -487,21 +540,21 @@ napi keret, felfuttatás („2. hét, max. 20/nap"), utolsó ellenőrzés, gombo
 
 „Új fiók" űrlap:
 
-| Mező | Megjegyzés |
-| --- | --- |
-| Szolgáltató | Gmail / Google Workspace / Egyéni. Az első kettő kitölti a hostot és a portot. |
-| E-mail cím | Ez a belépési név is. |
-| App-jelszó | `type="password"`. Gmailnél **nem** a fiókjelszó — lásd lent. |
-| Megjelenő név | Ez látszik feladóként. |
-| Címke | Rövid név a listában. |
-| Válaszcím | Opcionális. |
-| Napi keret, szünet (min–max perc), munkaidő-ablak | Alapértékekkel előtöltve: 18, 10–20, 9–17. |
-| SMTP host / port | Csak „Egyéni" szolgáltatónál látszik. |
+| Mező                                              | Megjegyzés                                                                     |
+| ------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Szolgáltató                                       | Gmail / Google Workspace / Egyéni. Az első kettő kitölti a hostot és a portot. |
+| E-mail cím                                        | Ez a belépési név is.                                                          |
+| App-jelszó                                        | `type="password"`. Gmailnél **nem** a fiókjelszó — lásd lent.                  |
+| Megjelenő név                                     | Ez látszik feladóként.                                                         |
+| Címke                                             | Rövid név a listában.                                                          |
+| Válaszcím                                         | Opcionális.                                                                    |
+| Napi keret, szünet (min–max perc), munkaidő-ablak | Alapértékekkel előtöltve: 18, 10–20, 9–17.                                     |
+| SMTP host / port                                  | Csak „Egyéni" szolgáltatónál látszik.                                          |
 
 Mentéskor: ellenőrzés → siker esetén mentés és visszajelzés („Kapcsolat
 rendben: cím"), hiba esetén érthető üzenet. A Gmail „invalid login" hibájára a
-Melodia ezt írja: *app-jelszó kell, nem a fiókjelszó, és be kell kapcsolni a
-kétlépcsős azonosítást.*
+Melodia ezt írja: _app-jelszó kell, nem a fiókjelszó, és be kell kapcsolni a
+kétlépcsős azonosítást._
 
 **Gmail app-jelszó beszerzése** (fiókonként egyszer):
 
@@ -545,8 +598,8 @@ A Melodia a 465-ös porton küld. **Hetzneren ezt 587-re kell állítani:**
 nodemailer.createTransport({
   host: "smtp.gmail.com",
   port: 587,
-  secure: false,      // 587-en a kapcsolat sima TCP-ként indul…
-  requireTLS: true,   // …és kötelezően STARTTLS-re vált
+  secure: false, // 587-en a kapcsolat sima TCP-ként indul…
+  requireTLS: true, // …és kötelezően STARTTLS-re vált
   auth: { user, pass },
   pool: true,
   maxConnections: 1,
@@ -572,24 +625,24 @@ Az IMAP (993) és a MongoDB Atlas (27017) kimenő forgalmát egyik sem tiltja.
 
 3. **Add Server:**
 
-   | Beállítás | Érték |
-   | --- | --- |
-   | Location | Falkenstein vagy Nürnberg (EU) |
-   | Image | Ubuntu 24.04 |
-   | Type | Shared vCPU, x86, **2 vCPU / 4 GB RAM** (a legkisebb ilyen csomag; havi pár euró) |
-   | Networking | Public IPv4 bekapcsolva (az Atlas IP-engedélyezéséhez kell) |
-   | SSH Key | az imént feltöltött |
-   | Name | pl. `mailer-1` |
+   | Beállítás  | Érték                                                                             |
+   | ---------- | --------------------------------------------------------------------------------- |
+   | Location   | Falkenstein vagy Nürnberg (EU)                                                    |
+   | Image      | Ubuntu 24.04                                                                      |
+   | Type       | Shared vCPU, x86, **2 vCPU / 4 GB RAM** (a legkisebb ilyen csomag; havi pár euró) |
+   | Networking | Public IPv4 bekapcsolva (az Atlas IP-engedélyezéséhez kell)                       |
+   | SSH Key    | az imént feltöltött                                                               |
+   | Name       | pl. `mailer-1`                                                                    |
 
    4 GB RAM a `next build` miatt kell; futni 1 GB-on is elmenne.
 
 4. **Firewalls → Create Firewall**, bejövő szabályok, majd rendeld a szerverhez:
 
-   | Port | Forrás | Mire |
-   | --- | --- | --- |
-   | 22 (TCP) | a saját IP-d, vagy bárhonnan | SSH |
-   | 80 (TCP) | bárhonnan | HTTPS-tanúsítvány kiállítása |
-   | 443 (TCP) | bárhonnan | a felület |
+   | Port      | Forrás                       | Mire                         |
+   | --------- | ---------------------------- | ---------------------------- |
+   | 22 (TCP)  | a saját IP-d, vagy bárhonnan | SSH                          |
+   | 80 (TCP)  | bárhonnan                    | HTTPS-tanúsítvány kiállítása |
+   | 443 (TCP) | bárhonnan                    | a felület                    |
 
    A 3000-es portot **ne** nyisd ki — az alkalmazás csak a proxyn át legyen
    elérhető.
@@ -825,15 +878,15 @@ következő levelet a sor elejéről küldi.
 
 ### 3.11 Üzemeltetés
 
-| Mit | Hogyan |
-| --- | --- |
-| Fut-e | `systemctl status mailer` |
-| Mit csinál | `journalctl -u mailer -f` |
-| Lemez | `df -h` — a naplót a journald magától forgatja |
-| Memória | `free -h` |
-| Mentés | Hetzner konzol → a szerver → Backups (felárért), vagy Snapshot kézzel |
+| Mit            | Hogyan                                                                                                           |
+| -------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Fut-e          | `systemctl status mailer`                                                                                        |
+| Mit csinál     | `journalctl -u mailer -f`                                                                                        |
+| Lemez          | `df -h` — a naplót a journald magától forgatja                                                                   |
+| Memória        | `free -h`                                                                                                        |
+| Mentés         | Hetzner konzol → a szerver → Backups (felárért), vagy Snapshot kézzel                                            |
 | Titkok mentése | `atlas-credentials.env` és a `MAIL_SECRET_KEY` jelszókezelőben — a szerver elvesztése után ezekből építhető újra |
-| Adatbázis | Az Atlasban él, nem a szerveren — a szerver bármikor újraépíthető |
+| Adatbázis      | Az Atlasban él, nem a szerveren — a szerver bármikor újraépíthető                                                |
 
 Leállás esetén a sorrend: `systemctl status mailer` → `journalctl -u mailer
 -n 100` → a felületen a fiók állapota és üzenete (a menet a hiba okát emberi
@@ -843,13 +896,13 @@ mondatként írja ki).
 
 A lépések ugyanazok, a különbségek:
 
-| | Hetzner | DigitalOcean |
-| --- | --- | --- |
-| Szerver neve | Server | Droplet |
-| Javasolt méret | 2 vCPU / 4 GB | Basic, 2 GB RAM (szűkösebb a fordításhoz; ha a `next build` memóriahiánnyal leáll, 4 GB kell, vagy swap) |
-| Tűzfal | Firewalls menü | Networking → Firewalls |
+|                 | Hetzner                         | DigitalOcean                                                                                                  |
+| --------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| Szerver neve    | Server                          | Droplet                                                                                                       |
+| Javasolt méret  | 2 vCPU / 4 GB                   | Basic, 2 GB RAM (szűkösebb a fordításhoz; ha a `next build` memóriahiánnyal leáll, 4 GB kell, vagy swap)      |
+| Tűzfal          | Firewalls menü                  | Networking → Firewalls                                                                                        |
 | **SMTP-portok** | 25 és 465 zárva, **587 nyitva** | 25, 465 **és 587 is zárva lehet** — támogatási kérést kell nyitni a feloldásért, és nem biztos, hogy megadják |
-| Mentés | Backups / Snapshots | Backups / Snapshots |
+| Mentés          | Backups / Snapshots             | Backups / Snapshots                                                                                           |
 
 Az SMTP-portok miatt a Hetzner az egyszerűbb út. DigitalOceanön a 3.3 lépés
 ellenőrzését a Droplet létrehozása után azonnal futtasd le; ha az 587 zárva
