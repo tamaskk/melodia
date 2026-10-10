@@ -1,69 +1,78 @@
-# SPEC — Küldő és néző gép
+# SPEC — Widget API: a queue-k mai állása
 
 Dátum: 2026-10-10 · Állapot: kész
 
 ## Cél
 
-Egyszerre csak egy gép küldhessen levelet, és ez a beállításokból derüljön
-ki. Eddig minden nem-Vercel példány küldő volt: egy fejlesztésre elindított
-`npm run dev` ugyanúgy ütemezett és küldött, mint az igazi küldő gép, a kettő
-felváltva írta felül a csatolmány-jegyzéket, és elvehették egymástól a
-fiókokat.
+Egy csak olvasó végpont a telefonos (Scriptable) widgetnek, amely megmutatja,
+hol tartanak ma a sorok: fiókonként a kiküldés, és a kutatás (begyűjtés).
 
 ## Megfigyelhető viselkedés
 
-- Adott egy gép `MELODIA_ROLE=kuldo` beállítással az `atlas-credentials.env`-ben,
-  akkor küldő: ütemez, folytat, küld, közzéteszi a csatolmány-jegyzéket.
-- Adott egy gép a beállítás nélkül (vagy más értékkel), vagy a telepített
-  példány, akkor néző: a küldés indítása érthető hibát ad, az ütemező nem fut,
-  a félbehagyott küldések nem folytatódnak, a jegyzéket nem írja, hanem a
-  küldő gépét olvassa.
-- Adott két küldőnek beállított gép, akkor az a küldő, amelyik előbb indult;
-  a másik nem küld, amíg az első életjele (25 perc) le nem jár.
-- A Queue-k oldal teteje kiírja a küldő gép nevét és utolsó életjelét, vagy
-  figyelmeztet, ha nincs élő küldő.
-- Induláskor a napló első sorai között áll a szerep.
-- Induláskor előbb folytatódnak a félbehagyott küldések, és csak utána indul
-  az ütemező.
+- `GET /api/widget/queues` — nyíltan hívható, belépés és token nélkül.
+- `?date=ÉÉÉÉ-HH-NN` másik napot kér; hibás dátum: `400`. Alapból a mai nap.
+- A nap a budapesti naptár szerinti 00:00–24:00; az UTC-határokat az adott
+  pillanat eltolásából számoljuk (óraátállításkor 23, illetve 25 órás nap).
+- Minden válasz `Cache-Control: no-store`. A végpont semmit nem módosít.
+- Queue-nként mindig `total = done + failed + pending + inProgress`.
+- Ami ma kész lett, budapesti éjfélig `done` állapotban, `completedAt`-tel
+  látszik. Amihez ma nem tartozik item és nem is fut, az nincs a listában.
+- Rendezés: `error` → `running` → `paused` → `idle` → `done`.
+
+## A sorok
+
+| `id`              | Miből számol                                                                                                                                                                                                |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `smtp:<fiók>`     | `done`: a napon kiment első levelek (`contacts.sentAt`, `sentFrom`). `failed`: `queue_daily_stats`. `pending`: a futó menet sora (`campaigns.queue`) és a még be nem töltött queue-k kiküldhető címzettjei. |
+| `research:email`  | `queue_daily_stats` — az e-mail-begyűjtés írja.                                                                                                                                                             |
+| `research:people` | `queue_daily_stats` — a kapcsolattartó-begyűjtés írja.                                                                                                                                                      |
 
 ## Érintett fájlok
 
-| Fájl                                                             | Változás                                               |
-| ---------------------------------------------------------------- | ------------------------------------------------------ |
-| `src/lib/role.ts`                                                | Új. Szerep, gépnév, életjel, a szerep lefoglalása.     |
-| `src/lib/sendCampaign.ts`, `sendQueues.ts`, `attachmentIndex.ts` | A küldés őrfeltétele a szerep, nem a `VERCEL` változó. |
-| `src/instrumentation.ts`                                         | Szerep a naplóba; folytatás az ütemező előtt.          |
-| `src/app/api/queues/route.ts`, `src/components/QueuesPanel.tsx`  | A küldő gép állapota a Queue-k oldalon.                |
-| `docs/EMAIL-KULDES.md`                                           | A szerep leírása.                                      |
+| Fájl                                      | Változás                                                              |
+| ----------------------------------------- | --------------------------------------------------------------------- |
+| `src/lib/widgetQueues.ts`                 | Új. Tiszta logika: a nap határai, a válasz összeállítása.             |
+| `src/lib/widgetQueuesData.ts`             | Új. Az adat lekérdezése (öt kis, indexelt kérdés egyszerre).          |
+| `src/lib/queueStats.ts`                   | Új. A `queue_daily_stats` írása; a hívó nem vár rá.                   |
+| `src/app/api/widget/queues/route.ts`      | Új. A végpont.                                                        |
+| `src/proxy.ts`                            | Az `/api/widget/` belépés nélkül elérhető (szándékosan nyílt).        |
+| `src/lib/sendCampaign.ts`                 | Hibás levélnél statisztika; a következő levél időpontja azonnal ment. |
+| `src/lib/emailSweep.ts`, `peopleSweep.ts` | A futás állása a statisztikába.                                       |
+| `tests/`, `package.json`                  | `npm test` (`node:test` a meglévő `tsx`-szel).                        |
 
 ## Interfészek
 
-- Beállítás: `MELODIA_ROLE` (`kuldo` | `küldő` | `sender` = küldő; minden más
-  néző), `MELODIA_NAME` (a gép neve; alapból a hosztnév).
-- `app_state` új dokumentum: `{ _id: "sender", host, at }`.
-- `GET /api/queues` válasza: `+ sender: { host, at, alive } | null`.
+- Új collection: `queue_daily_stats` —
+  `{ queueId, date, total, done, failed, inProgress?, running?, lastError?, completedAt, updatedAt }`,
+  egyedi index: `(queueId, date)`.
+- Új index: `send_queues.runDate`.
 
 ## Hatókörön kívül
 
-- A küldő szerep átadása a felületről; kézi „átveszem” gomb.
-- A Gmail-szinkron és az e-mail keresés szerephez kötése (ezek nem küldenek).
+- IMAP-begyűjtés (nem itemenkénti sor).
+- Follow-up levelek mint külön itemek (a napi keretbe beleszámítanak).
+- A külső kutatóbot (`/api/bot`) mentései.
 
 ## Feltételezések
 
-- Az alapértelmezés a néző: küldeni csak kifejezett beállítással lehet.
-- Az életjel az ütemező körével megy (10 perc), 25 percig számít élőnek.
+- A kézi (queue nélküli) küldés is a fiók sorába számít.
+- Lezáráskor a ki nem ment címzettek visszakerülnek a listába, így a nap
+  végén `total = done + failed`.
+- Többfiókos, még be nem töltött queue hátraléka a fiókok napi kerete
+  arányában oszlik meg (becslés; betöltés után a menet sora a pontos szám).
+- A kutatás 20 percnél régebbi életjellel nem számít futónak.
 
 ## Kockázat
 
-- **Frissítés után a mostani küldő gép néző lesz, amíg a beállítás nincs
-  megadva** — a queue-k nem indulnak. A Queue-k oldal ezt jelzi.
-- Ha a küldő gép váratlanul leáll, egy másik küldőnek beállított gép 25 perc
-  után veheti át.
+- A végpont nyílt: a fiókok címe és a napi darabszámok bárkinek látszanak,
+  aki ismeri az URL-t.
+- A `failed`, a `nextRunAt` és a kutatás sorai csak azután pontosak, hogy a
+  küldő gép az új kóddal újraindult.
+- Hibás, de a queue-ban maradó címzett a `failed` és a `pending` számban is
+  megjelenhet, amíg a queue le nem zárul.
 
 ## Ellenőrzés (end-to-end)
 
-1. `npm run typecheck`, `npm run lint` — hiba nélkül.
-2. Néző gép: küldés, folytatás, ütemezés, queue-indítás elutasítva; a
-   jegyzéket nem írja.
-3. Küldő szerep: lefoglalás, megújítás, második gép elutasítása, lejárt
-   életjel utáni átvétel.
+1. `npm run typecheck`, `npm run lint`, `npm test` — hiba nélkül.
+2. Éles adatbázison, meleg kapcsolattal a lekérdezés 300 ms alatt.
+3. `curl https://melodia-kt.vercel.app/api/widget/queues`

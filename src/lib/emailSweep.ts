@@ -16,6 +16,7 @@ import {
 import { findEmail, type SearchProvider } from "./emailFinder";
 import { cliBusy, cliConcurrency, setCliConcurrency } from "./cliQueue";
 import { createLogger } from "./logger";
+import { sweepTracker } from "./queueStats";
 import type { ContactDoc, ContactFilters } from "./types";
 
 const log = createLogger("sweep");
@@ -266,6 +267,10 @@ async function run(options: SweepOptions): Promise<void> {
     return;
   }
 
+  // A telefonos widget ebből látja a futást — a keresés nem vár rá.
+  const tracker = sweepTracker("research:email");
+  tracker.started(queue.length);
+
   let consecutiveErrors = 0;
   let cursor = 0;
   // Ennyi cégen dolgozunk egyszerre; ha egy végez, a következőt viszi tovább
@@ -296,11 +301,13 @@ async function run(options: SweepOptions): Promise<void> {
 
       working.set(contact.company, new Date().toISOString());
       showCurrent();
+      tracker.itemStarted();
       const position = `${index + 1}/${queue.length}`;
       const item = await processOne(contact, options.provider, position);
       working.delete(contact.company);
       showCurrent();
 
+      tracker.itemFinished(Boolean(item.error));
       state.processed += 1;
       if (item.error) {
         state.failed += 1;
@@ -342,6 +349,11 @@ async function run(options: SweepOptions): Promise<void> {
     state.message = `Leállítva ${state.processed}/${state.total} után.`;
     log.warn(state.message);
   }
+
+  tracker.finished({
+    unprocessed: queue.length - state.processed,
+    error: consecutiveErrors >= 3 ? state.message : null,
+  });
 
   state.current = null;
   state.active = [];
