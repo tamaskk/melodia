@@ -14,6 +14,7 @@ import {
   attachmentsDir,
   listAttachments,
   resolveSelection,
+  type AttachmentInfo,
 } from "./attachments";
 import { credential } from "./env";
 import { createLogger } from "./logger";
@@ -330,7 +331,8 @@ export async function sendAlertEmail(
 
 /**
  * Follow-up ugyanabban a szálban: `Re:` tárgy, `In-Reply-To` / `References`
- * fejléc az eredeti levélre, csatolmány nélkül (a CV már az első levélben ment).
+ * fejléc az eredeti levélre. Alapból csatolmány nélkül megy (a CV már az első
+ * levélben ment); az időzített válasz adhat mellé fájlt.
  */
 export async function sendFollowUpEmail(options: {
   accountId?: string | null;
@@ -341,6 +343,7 @@ export async function sendFollowUpEmail(options: {
   inReplyTo?: string | null;
   /** A naplóban: „follow-up” vagy „válasz”. */
   kind?: string;
+  files?: AttachmentInfo[];
 }): Promise<SendResult> {
   const config = mailerConfig(options.accountId);
   if (!config) throw new Error("Nincs beállítva a Gmail-küldés.");
@@ -357,7 +360,10 @@ export async function sendFollowUpEmail(options: {
     to: options.to,
     subject: options.subject,
     text: options.body,
-    files: [],
+    files: (options.files ?? []).map((file) => ({
+      filename: file.filename,
+      path: file.path,
+    })),
     reference,
   });
   log.info(
@@ -378,6 +384,6 @@ export async function sendFollowUpEmail(options: {
     messageId,
     accepted,
     rejected,
-    attachments: [],
+    attachments: (options.files ?? []).map((file) => file.filename),
   };
 }

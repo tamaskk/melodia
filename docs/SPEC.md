@@ -1,78 +1,125 @@
-# SPEC — Widget API: a queue-k mai állása
+# SPEC — Időzített válasz a szálba (jellemzően elutasítás után)
 
-Dátum: 2026-10-10 · Állapot: kész
+Dátum: 2026-10-12 · Állapot: kész, élesben még nem küldött
 
 ## Cél
 
-Egy csak olvasó végpont a telefonos (Scriptable) widgetnek, amely megmutatja,
-hol tartanak ma a sorok: fiókonként a kiküldés, és a kutatás (begyűjtés).
+A levelezésben kijelölt szálakra menjen egy rövid, egyedi levél ugyanabban a
+szálban: sajnálom, hogy most nincs lehetőség; ha később nyílik valami,
+szívesen veszem a megkeresést — mellé egy bemutatkozó PDF.
 
 ## Megfigyelhető viselkedés
 
-- `GET /api/widget/queues` — nyíltan hívható, belépés és token nélkül.
-- `?date=ÉÉÉÉ-HH-NN` másik napot kér; hibás dátum: `400`. Alapból a mai nap.
-- A nap a budapesti naptár szerinti 00:00–24:00; az UTC-határokat az adott
-  pillanat eltolásából számoljuk (óraátállításkor 23, illetve 25 órás nap).
-- Minden válasz `Cache-Control: no-store`. A végpont semmit nem módosít.
-- Queue-nként mindig `total = done + failed + pending + inProgress`.
-- Ami ma kész lett, budapesti éjfélig `done` állapotban, `completedAt`-tel
-  látszik. Amihez ma nem tartozik item és nem is fut, az nincs a listában.
-- Rendezés: `error` → `running` → `paused` → `idle` → `done`.
+- A Levelezés és az Elutasítások oldalon jelölőnégyzet áll minden szál előtt,
+  amelyre emberi válasz jött, és még nincs rá időzített vagy kiment levél.
+  Nem csak elutasított szál jelölhető: a szöveg a szál tartalmához igazodik.
+- Időzítéskor kiválasztható, mely fájlok menjenek mellé (a küldő gép
+  `attachments/` mappájának jegyzékéből; több is lehet). A levél mindig
+  megemlíti a csatolt dokumentumot, ezért csatolmány nélkül nem hagyható jóvá
+  és nem megy ki; a csatolmány a piszkozatnál utólag is állítható.
+- Szálanként külön piszkozat készül a helyi Claude CLI-vel, kis modellel
+  (`CLAUDE_REPLY_MODEL`, alapból `haiku`): 3–4 mondat, formális, a kapott levél
+  nyelvén, a levél írójának megszólításával.
+- A piszkozatok előnézete a Levelezés és az Elutasítások oldalon, a szállista
+  fölött jelenik meg, és a Queue-k oldalon is ott van („Időzített válaszok”):
+  átnézhető, átírható, újragenerálható, lemondható. **Jóváhagyás nélkül semmi
+  nem megy ki.**
+- Piszkozatot bármelyik saját gép ír, ahol van Claude CLI (nem kell küldőnek
+  lennie); a telepített példány nem. Küldeni továbbra is csak a küldő gép tud.
+- A jóváhagyott levél arról a fiókról megy, amelyikre a válasz érkezett, annak
+  a címnek, ahonnan jött, `In-Reply-To` / `References` fejléccel.
+- Küldés napja: a fiók legkorábbi szabad helye. A betervezett első levelek
+  elsőbbséget élveznek — a válasz csak a napi keretből megmaradt helyet
+  használja; ha ma nincs hely, a következő napra vár.
+- Küldési ablak: hétköznap 7–19 óra között a küldő és a címzett helyi idejében
+  is; egy fiókból két válasz között legalább 10 perc telik el.
+- Védelmek: szálanként egy levél · robotcímre (`noreply@…`) nem időzíthető ·
+  ha az időzítés óta új levél jött a szálban, nem megy ki („megállt”) · ha
+  hiányzik egy kiválasztott csatolmány, nem megy ki nélküle · megszakadt
+  küldés magától nem ismétlődik.
+- Küldés után a kontakt `szalvalasz-kiment` címkét és `threadReplySentAt`
+  dátumot kap; a kimenetel (pl. „Elutasítva”) nem változik.
+- A widgetben a kiment és a jóváhagyott, helyre váró válaszok a fiók
+  (`smtp:<fiók>`) sorába számítanak; a válasz alakja nem változik.
 
-## A sorok
+## Állapotok
 
-| `id`              | Miből számol                                                                                                                                                                                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `smtp:<fiók>`     | `done`: a napon kiment első levelek (`contacts.sentAt`, `sentFrom`). `failed`: `queue_daily_stats`. `pending`: a futó menet sora (`campaigns.queue`) és a még be nem töltött queue-k kiküldhető címzettjei. |
-| `research:email`  | `queue_daily_stats` — az e-mail-begyűjtés írja.                                                                                                                                                             |
-| `research:people` | `queue_daily_stats` — a kapcsolattartó-begyűjtés írja.                                                                                                                                                      |
+`generalas` → `atnezendo` → `jovahagyva` → `kuldes` → `kiment`; mellékágak:
+`megallt` (új levél jött), `hiba` (piszkozat vagy küldés nem sikerült).
 
 ## Érintett fájlok
 
-| Fájl                                      | Változás                                                              |
-| ----------------------------------------- | --------------------------------------------------------------------- |
-| `src/lib/widgetQueues.ts`                 | Új. Tiszta logika: a nap határai, a válasz összeállítása.             |
-| `src/lib/widgetQueuesData.ts`             | Új. Az adat lekérdezése (öt kis, indexelt kérdés egyszerre).          |
-| `src/lib/queueStats.ts`                   | Új. A `queue_daily_stats` írása; a hívó nem vár rá.                   |
-| `src/app/api/widget/queues/route.ts`      | Új. A végpont.                                                        |
-| `src/proxy.ts`                            | Az `/api/widget/` belépés nélkül elérhető (szándékosan nyílt).        |
-| `src/lib/sendCampaign.ts`                 | Hibás levélnél statisztika; a következő levél időpontja azonnal ment. |
-| `src/lib/emailSweep.ts`, `peopleSweep.ts` | A futás állása a statisztikába.                                       |
-| `tests/`, `package.json`                  | `npm test` (`node:test` a meglévő `tsx`-szel).                        |
+| Fájl                                             | Változás                                                            |
+| ------------------------------------------------ | ------------------------------------------------------------------- |
+| `src/lib/threadReplyDraft.ts`                    | Új. Tiszta rész: prompt, tárgy, robotcím-szűrő, a napi szabad hely. |
+| `src/lib/threadReplies.ts`                       | Új. A `thread_replies` tárolása és a küldő gép 2 perces köre.       |
+| `src/app/api/mail/scheduled/route.ts`            | Új. Lista, időzítés, jóváhagyás, átírás, újragenerálás, lemondás.   |
+| `src/components/ScheduledReplies.tsx`            | Új. Az átnéző panel a Queue-k oldalon.                              |
+| `src/components/MailApp.tsx`                     | Kijelölés, időzítő sáv, jelvény a szálakon.                         |
+| `src/app/api/mail/route.ts`                      | A szállista mellé: melyik szálra van már időzített válasz.          |
+| `src/lib/mailer.ts`                              | A szálba menő levél kaphat csatolmányt.                             |
+| `src/lib/emailFinderClaude.ts`, `aiText.ts`      | Hívásonként megadható modell.                                       |
+| `src/lib/widgetQueues.ts`, `widgetQueuesData.ts` | A válaszok beszámítása a fiók sorába.                               |
+| `src/instrumentation.ts`                         | A kör indítása a küldő gépen.                                       |
 
 ## Interfészek
 
-- Új collection: `queue_daily_stats` —
-  `{ queueId, date, total, done, failed, inProgress?, running?, lastError?, completedAt, updatedAt }`,
-  egyedi index: `(queueId, date)`.
-- Új index: `send_queues.runDate`.
+- Új collection: `thread_replies` — egyedi index: `threadId`; továbbá
+  `(status, accountId, sentAt)`.
+- `POST /api/mail/scheduled` műveletei: `schedule`, `approve`, `edit`,
+  `regenerate`, `cancel`.
 
 ## Hatókörön kívül
 
-- IMAP-begyűjtés (nem itemenkénti sor).
-- Follow-up levelek mint külön itemek (a napi keretbe beleszámítanak).
-- A külső kutatóbot (`/api/bot`) mentései.
+- A kiküldő menet (`sendCampaign.ts`) és a queue-k tervezése nem változott: a
+  válaszok külön körben mennek, és nem foglalnak helyet a naptárban.
+- Időzítés konkrét dátumra.
+- Több levél ugyanarra a szálra.
 
 ## Feltételezések
 
-- A kézi (queue nélküli) küldés is a fiók sorába számít.
-- Lezáráskor a ki nem ment címzettek visszakerülnek a listába, így a nap
-  végén `total = done + failed`.
-- Többfiókos, még be nem töltött queue hátraléka a fiókok napi kerete
-  arányában oszlik meg (becslés; betöltés után a menet sora a pontos szám).
-- A kutatás 20 percnél régebbi életjellel nem számít futónak.
+- Ha a fióknak nincs napi plafonja (kikapcsolt felfuttatás, megadott maximum
+  nélkül), a válaszokat csak a 10 perces ütem korlátozza.
+- A hétvégén is küldő queue-k beállítása a válaszokra nem vonatkozik.
 
 ## Kockázat
 
-- A végpont nyílt: a fiókok címe és a napi darabszámok bárkinek látszanak,
-  aki ismeri az URL-t.
-- A `failed`, a `nextRunAt` és a kutatás sorai csak azután pontosak, hogy a
-  küldő gép az új kóddal újraindult.
-- Hibás, de a queue-ban maradó címzett a `failed` és a `pending` számban is
-  megjelenhet, amíg a queue le nem zárul.
+- Ha a naptár minden nap a plafonig tele van, a válasz nem jut helyhez — a
+  Queue-k oldalon „időzítve” állapotban áll, amíg nem szabadul fel hely.
+- A kis modell szövege nyelvtanilag megbotolhat; ezért kötelező az átnézés.
+- A telepített példányról időzített szál piszkozata csak akkor készül el, ha
+  egy saját gép fut az új kóddal (a küldő gép, vagy egy megnyitott helyi
+  példány).
 
-## Ellenőrzés (end-to-end)
+## Kiegészítés — fiókválasztó a Levelezés oldalon (2026-10-12)
 
-1. `npm run typecheck`, `npm run lint`, `npm test` — hiba nélkül.
-2. Éles adatbázison, meleg kapcsolattal a lekérdezés 300 ms alatt.
-3. `curl https://melodia-kt.vercel.app/api/widget/queues`
+- A fejlécben legördülő: „Minden fiók", vagy a rendszerben felvett küldő
+  fiókok egyike. A számok, a diagram és a szállista a kiválasztott fiókra
+  szűkül (`GET /api/mail?account=<cím>`).
+- A begyűjtés mostantól minden Gmail-fiók postafiókját olvassa, nem csak az
+  elsőt; az új levelek `account` mezőt kapnak. A régi leveleknél a szál fiókja
+  a kimenő levél feladója.
+- Érintett: `src/lib/inbox.ts`, `src/lib/mailStore.ts`,
+  `src/app/api/mail/route.ts`, `src/components/MailApp.tsx`.
+- A Resend-fióknak nincs postafiókja: a kimenő leveleit a begyűjtés a
+  kontaktok soráról veszi fel (`src/lib/resendMail.ts`), és ha a címzettől
+  levél érkezik valamelyik Gmail-postafiókba, a kettőt egy szálba köti.
+- A Resend kézbesítési állapota a Resend API-ból jön (`GET /emails`): ami ott
+  `bounced`, az a levelezésben visszapattantként látszik, és a kontakt is
+  visszapattant állapotot kap a következő begyűjtéskor.
+- Hatókörön kívül: a Resend saját „Receiving" postafiókjának olvasása — válasz
+  csak akkor látszik, ha egy Gmail-fiókba érkezik.
+
+## Kiegészítés — szűrés egy napra a Levelezés oldalon (2026-10-13)
+
+- A diagram fejlécében dátumválasztó áll a 14/30/90 napos gombok mellett; a
+  diagram egy napjára kattintva ugyanaz a nap választódik ki (újabb kattintás
+  vagy a „minden nap" gomb törli).
+- Kiválasztott napnál a számok és a szállista azokra a szálakra szűkül,
+  amelyekben aznap ment vagy jött levél (`GET /api/mail?day=ÉÉÉÉ-HH-NN`). A
+  diagram az időszakot mutatja tovább, a napot függőleges vonal jelöli.
+- A nap határa ugyanaz, mint a diagramé (a tárolt dátum első tíz karaktere).
+- Érintett: `src/lib/mailStore.ts`, `src/app/api/mail/route.ts`,
+  `src/components/MailApp.tsx`, `src/components/MailChart.tsx`.
+- Hatókörön kívül: tetszőleges kezdő–záró dátumú időszak, és a napra szűrés
+  az Elutasítások oldalon.

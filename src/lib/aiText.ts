@@ -11,8 +11,9 @@ import { recordUsage } from "./usage";
 export async function askClaude(
   prompt: string,
   meta: { contactId: string | null; company: string; origin: string },
+  options: { model?: string } = {},
 ): Promise<{ data: Record<string, unknown>; model: string }> {
-  const data = await runClaudeJson(prompt);
+  const data = await runClaudeJson(prompt, options);
   const stats = takeLastStats();
   if (stats) {
     await recordUsage({

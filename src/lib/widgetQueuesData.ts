@@ -53,7 +53,7 @@ export async function widgetQueues(
 
   const db = await getDb();
   const contacts = await getContacts();
-  const [, sent, campaigns, queues, stats] = await Promise.all([
+  const [, sent, campaigns, queues, stats, replies] = await Promise.all([
     ensureAccounts(),
     // A napon kiment első levelek fiókonként — a `sent_at` részindexen fut.
     contacts
@@ -102,6 +102,36 @@ export async function widgetQueues(
       .toArray(),
     (await queueStats())
       .find({ date: day }, { projection: { _id: 0, date: 0 } })
+      .toArray(),
+    // Időzített válaszok: a napon kimentek és a szabad helyre várók, fiókonként.
+    // A `(status, accountId, sentAt)` indexen fut (threadReplies.ts).
+    db
+      .collection("thread_replies")
+      .aggregate<{
+        _id: string;
+        sent: number;
+        lastAt: string | null;
+        waiting: number;
+      }>([
+        {
+          $match: {
+            $or: [
+              { status: "jovahagyva" },
+              { status: "kiment", sentAt: { $gte: range.start, $lt: range.end } },
+            ],
+          },
+        },
+        {
+          $group: {
+            _id: "$accountId",
+            sent: { $sum: { $cond: [{ $eq: ["$status", "kiment"] }, 1, 0] } },
+            lastAt: { $max: "$sentAt" },
+            waiting: {
+              $sum: { $cond: [{ $eq: ["$status", "jovahagyva"] }, 1, 0] },
+            },
+          },
+        },
+      ])
       .toArray(),
   ]);
 
@@ -156,6 +186,12 @@ export async function widgetQueues(
           count: row.count,
           lastAt: row.lastAt,
         })),
+      replies: replies.map((row) => ({
+        accountId: row._id,
+        sent: row.sent,
+        lastAt: row.lastAt ?? null,
+        waiting: row.waiting,
+      })),
       campaigns: campaigns.map((row) => ({
         accountId: row.accountId,
         status: row.status,

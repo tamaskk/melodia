@@ -1,4 +1,5 @@
 import QueuesPanel from "@/components/QueuesPanel";
+import ScheduledReplies from "@/components/ScheduledReplies";
 import { searchProvider } from "@/lib/emailFinder";
 import { isAiEnabled, isEmailSearchEnabled } from "@/lib/openai";
 
@@ -15,6 +16,7 @@ export default function QueuesPage() {
         emailSearchEnabled={isEmailSearchEnabled()}
         defaultProvider={searchProvider()}
       />
+      <ScheduledReplies />
     </main>
   );
 }

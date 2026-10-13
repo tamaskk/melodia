@@ -87,4 +87,9 @@ export async function register() {
       ? "queue-ütemező fut: 10 percenként, indítás 7 és 19 óra között"
       : "queue-ütemező kikapcsolva (néző példány)",
   );
+
+  // Időzített válaszok a szálakba: piszkozat a CLI-vel, küldés a szabad helyeken.
+  if ((await import("@/lib/threadReplies")).startThreadReplyRunner()) {
+    log.info("időzített válaszok köre fut: 2 percenként");
+  }
 }

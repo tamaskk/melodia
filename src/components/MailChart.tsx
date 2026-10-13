@@ -74,10 +74,15 @@ export default function MailChart({
   data,
   days,
   onDaysChange,
+  day,
+  onDayChange,
 }: {
   data: DailyPoint[];
   days: number;
   onDaysChange: (days: number) => void;
+  /** A kiválasztott nap (ÉÉÉÉ-HH-NN), vagy üres, ha nincs napra szűrés. */
+  day: string;
+  onDayChange: (day: string) => void;
 }) {
   const [hover, setHover] = useState<number | null>(null);
 
@@ -150,7 +155,10 @@ export default function MailChart({
   const totalReplies = data.reduce((sum, point) => sum + point.replies, 0);
   // Minden napra nem fér ki felirat; ritkítunk, de az utolsó nap mindig kell.
   const labelEvery = Math.max(1, Math.ceil(data.length / 12));
-  const active = hover !== null ? data[hover] : null;
+  // A kiválasztott nap kívül is eshet az ábrázolt időszakon — akkor nincs jelölő.
+  const picked = day ? data.findIndex((point) => point.day === day) : -1;
+  const shown = hover ?? (picked >= 0 ? picked : null);
+  const active = shown !== null ? data[shown] : null;
   const dots = data.length <= 40;
 
   return (
@@ -173,7 +181,31 @@ export default function MailChart({
           válaszarány, 7 napos (jobb tengely)
         </span>
 
-        <div className="ml-auto flex overflow-hidden rounded-lg border border-[var(--border)]">
+        <div className="ml-auto flex items-center gap-1.5">
+          <input
+            type="date"
+            value={day}
+            max={data[data.length - 1]?.day}
+            onChange={(event) => onDayChange(event.target.value)}
+            aria-label="Szűrés egy napra"
+            className={`h-8 rounded-lg border bg-[var(--surface-2)] px-2 text-xs outline-none focus:border-blue-500 ${
+              day
+                ? "border-blue-500 text-blue-200"
+                : "border-[var(--border)] text-[var(--muted)]"
+            }`}
+          />
+          {day ? (
+            <button
+              type="button"
+              onClick={() => onDayChange("")}
+              className="h-8 rounded-lg border border-[var(--border)] px-2 text-xs text-[var(--muted)] transition hover:border-blue-500 hover:text-foreground"
+            >
+              minden nap
+            </button>
+          ) : null}
+        </div>
+
+        <div className="flex overflow-hidden rounded-lg border border-[var(--border)]">
           {[14, 30, 90].map((option) => (
             <button
               key={option}
@@ -288,6 +320,17 @@ export default function MailChart({
           ) : null,
         )}
 
+        {picked >= 0 ? (
+          <line
+            x1={x(picked)}
+            x2={x(picked)}
+            y1={PAD.top}
+            y2={PAD.top + PLOT_H}
+            stroke="#60a5fa"
+            strokeWidth={2}
+          />
+        ) : null}
+
         {hover !== null ? (
           <line
             x1={x(hover)}
@@ -310,7 +353,9 @@ export default function MailChart({
             width={PLOT_W / Math.max(1, data.length - 1)}
             height={PLOT_H}
             fill="transparent"
+            className="cursor-pointer"
             onMouseEnter={() => setHover(index)}
+            onClick={() => onDayChange(point.day === day ? "" : point.day)}
           />
         ))}
       </svg>
@@ -321,18 +366,21 @@ export default function MailChart({
             <span className="text-foreground">{longLabel(active.day)}</span> ·{" "}
             <span className="text-[#e8b04b]">{active.sent} kiküldve</span> ·{" "}
             <span className="text-[#34d399]">{active.replies} válasz</span>
-            {hover !== null && rates[hover] !== null ? (
+            {shown !== null && rates[shown] !== null ? (
               <>
                 {" "}
                 ·{" "}
                 <span className="text-[#60a5fa]">
-                  {Math.round(rates[hover] ?? 0)}% az utolsó 7 napban
+                  {Math.round(rates[shown] ?? 0)}% az utolsó 7 napban
                 </span>
               </>
             ) : null}
+            {hover === null
+              ? " · a számok és a lista erre a napra szűkítve"
+              : null}
           </>
         ) : (
-          "Vidd az egeret a diagram fölé egy nap számaiért. A visszapattanó levelek nem számítanak válasznak."
+          "Vidd az egeret a diagram fölé egy nap számaiért, kattints rá a napra szűréshez. A visszapattanó levelek nem számítanak válasznak."
         )}
       </p>
     </div>

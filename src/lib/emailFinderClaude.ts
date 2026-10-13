@@ -204,6 +204,8 @@ interface RunOptions {
   maxTurns: number;
   /** Melyik eszközöket kapja meg. Ismert weboldalnál a WebSearch felesleges. */
   tools: string[];
+  /** Másik modell erre a hívásra; alapból a keresőé. */
+  model?: string;
 }
 
 function runCli(
@@ -257,7 +259,7 @@ function runCli(
         // Alapból Opus futna — a keresés validáló munka, arra a Sonnet elég,
         // és nagyságrenddel kevesebbet visz el az előfizetési keretből.
         "--model",
-        searchModel(),
+        options.model ?? searchModel(),
         "--max-turns",
         String(maxTurns),
         // Minimalizált környezet: se MCP-szerverek, se projekt-beállítás/hook,
@@ -560,12 +562,13 @@ export async function runClaudeSearch(
  */
 export async function runClaudeJson(
   prompt: string,
-  options: { maxTurns?: number; timeoutMs?: number } = {},
+  options: { maxTurns?: number; timeoutMs?: number; model?: string } = {},
 ): Promise<Record<string, unknown>> {
   const result = await runWithFallback(prompt, {
     timeoutMs: options.timeoutMs ?? 180_000,
     maxTurns: options.maxTurns ?? 2,
     tools: [],
+    model: options.model,
   });
   return parseJson(result);
 }
