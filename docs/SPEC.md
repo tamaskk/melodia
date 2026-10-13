@@ -115,9 +115,12 @@ szívesen veszem a megkeresést — mellé egy bemutatkozó PDF.
 - A diagram fejlécében dátumválasztó áll a 14/30/90 napos gombok mellett; a
   diagram egy napjára kattintva ugyanaz a nap választódik ki (újabb kattintás
   vagy a „minden nap" gomb törli).
-- Kiválasztott napnál a számok és a szállista azokra a szálakra szűkül,
-  amelyekben aznap ment vagy jött levél (`GET /api/mail?day=ÉÉÉÉ-HH-NN`). A
-  diagram az időszakot mutatja tovább, a napot függőleges vonal jelöli.
+- Kiválasztott napnál a lista csak az aznapi leveleket mutatja
+  (`GET /api/mail?day=ÉÉÉÉ-HH-NN`): szálanként egy sor, benne az aznapi utolsó
+  levél időpontja és előnézete, meg az aznapi darabszám. A számok ugyanezekre
+  a szálakra szűkülnek. A megnyitott szál a teljes levelezést mutatja.
+- A diagram az időszakot mutatja tovább; a kiválasztott napot sáv, függőleges
+  vonal, nagyobb pontok és kiemelt tengelyfelirat jelöli.
 - A nap határa ugyanaz, mint a diagramé (a tárolt dátum első tíz karaktere).
 - Érintett: `src/lib/mailStore.ts`, `src/app/api/mail/route.ts`,
   `src/components/MailApp.tsx`, `src/components/MailChart.tsx`.

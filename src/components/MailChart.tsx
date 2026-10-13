@@ -157,6 +157,7 @@ export default function MailChart({
   const labelEvery = Math.max(1, Math.ceil(data.length / 12));
   // A kiválasztott nap kívül is eshet az ábrázolt időszakon — akkor nincs jelölő.
   const picked = day ? data.findIndex((point) => point.day === day) : -1;
+  const column = PLOT_W / Math.max(1, data.length - 1);
   const shown = hover ?? (picked >= 0 ? picked : null);
   const active = shown !== null ? data[shown] : null;
   const dots = data.length <= 40;
@@ -273,6 +274,18 @@ export default function MailChart({
           </g>
         ))}
 
+        {/* A kiválasztott nap sávja a görbék mögött. */}
+        {picked >= 0 ? (
+          <rect
+            x={x(picked) - Math.max(column, 16) / 2}
+            y={PAD.top}
+            width={Math.max(column, 16)}
+            height={PLOT_H}
+            fill="#60a5fa"
+            fillOpacity={0.18}
+          />
+        ) : null}
+
         {/* Hátul a kiküldött levelek: ez adja a nagyságrendet. */}
         <path d={sentArea} fill="url(#mail-sent)" />
         <path d={sentLine} fill="none" stroke="#e8b04b" strokeWidth={2} />
@@ -305,9 +318,11 @@ export default function MailChart({
           : null}
 
         {data.map((point, index) =>
-          (index % labelEvery === 0 &&
+          // A kiválasztott nap saját feliratot kap; a szomszédja ne lógjon bele.
+          (picked < 0 || Math.abs(index - picked) >= labelEvery / 2) &&
+          ((index % labelEvery === 0 &&
             data.length - 1 - index >= labelEvery / 2) ||
-          index === data.length - 1 ? (
+            index === data.length - 1) ? (
             <text
               key={`label-${point.day}`}
               x={x(index)}
@@ -321,14 +336,40 @@ export default function MailChart({
         )}
 
         {picked >= 0 ? (
-          <line
-            x1={x(picked)}
-            x2={x(picked)}
-            y1={PAD.top}
-            y2={PAD.top + PLOT_H}
-            stroke="#60a5fa"
-            strokeWidth={2}
-          />
+          <g>
+            <line
+              x1={x(picked)}
+              x2={x(picked)}
+              y1={PAD.top}
+              y2={PAD.top + PLOT_H}
+              stroke="#60a5fa"
+              strokeWidth={2}
+            />
+            <circle
+              cx={x(picked)}
+              cy={y(data[picked].sent)}
+              r={6}
+              fill="#e8b04b"
+              stroke="#fff"
+              strokeWidth={2}
+            />
+            <circle
+              cx={x(picked)}
+              cy={y(data[picked].replies)}
+              r={6}
+              fill="#34d399"
+              stroke="#fff"
+              strokeWidth={2}
+            />
+            <text
+              x={x(picked)}
+              y={HEIGHT - 10}
+              textAnchor="middle"
+              className="fill-[#93c5fd] text-[12px] font-semibold"
+            >
+              {label(data[picked].day)}
+            </text>
+          </g>
         ) : null}
 
         {hover !== null ? (
@@ -376,7 +417,7 @@ export default function MailChart({
               </>
             ) : null}
             {hover === null
-              ? " · a számok és a lista erre a napra szűkítve"
+              ? " · a lista csak az aznapi leveleket mutatja"
               : null}
           </>
         ) : (
