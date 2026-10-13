@@ -3,7 +3,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import MailChart, { type DailyPoint } from "./MailChart";
+import ScheduledReplies from "./ScheduledReplies";
 import { formatNumber } from "@/lib/format";
+import {
+  STATUS_LABELS as REPLY_LABELS,
+  type ThreadReplyStatus,
+} from "@/lib/threadReplyDraft";
 import { useStatusPoll } from "./useStatusPoll";
 
 interface MailAddress {
@@ -53,6 +58,24 @@ interface Stats {
   bounced: number;
   silent: number;
   replyRate: number;
+}
+
+/** Egy küldő fiók a rendszerből — a legördülő ezekre szűr. */
+interface AccountChoice {
+  id: string;
+  user: string;
+  provider: "gmail" | "resend";
+}
+
+interface AttachmentChoice {
+  key: string;
+  name: string;
+}
+
+/** Az időzítés eredménye: mennyi került fel, és mi maradt ki miért. */
+interface ScheduleOutcome {
+  scheduled: number;
+  skipped: { threadId: string; company: string; reason: string }[];
 }
 
 interface SyncStatus {
@@ -230,7 +253,22 @@ export default function MailApp({
   const [sync, setSync] = useState<SyncStatus | null>(null);
   const [daily, setDaily] = useState<DailyPoint[]>([]);
   const [days, setDays] = useState(30);
+  // Üres: nincs napra szűrés, a teljes levelezés látszik.
+  const [day, setDay] = useState("");
+  // Üres: minden fiók együtt.
+  const [account, setAccount] = useState("");
+  const [accounts, setAccounts] = useState<AccountChoice[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // Időzített válasz: mely szálakra van már, mi van kijelölve, és mi megy mellé.
+  const [scheduled, setScheduled] = useState<Record<string, ThreadReplyStatus>>(
+    {},
+  );
+  const [selected, setSelected] = useState<string[]>([]);
+  const [files, setFiles] = useState<AttachmentChoice[] | null>(null);
+  const [picked, setPicked] = useState<string[]>([]);
+  const [scheduling, setScheduling] = useState(false);
+  const [outcome, setOutcome] = useState<ScheduleOutcome | null>(null);
+  const [previewKey, setPreviewKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -238,8 +276,10 @@ export default function MailApp({
       const params = new URLSearchParams();
       if (status) params.set("status", status);
       if (rejectedOnly) params.set("rejected", "1");
+      if (account) params.set("account", account);
       if (query.trim()) params.set("q", query.trim());
       params.set("days", String(days));
+      if (day && !rejectedOnly) params.set("day", day);
       const response = await fetch(`/api/mail?${params}`, {
         cache: "no-store",
       });
@@ -248,6 +288,8 @@ export default function MailApp({
       setThreads(data.threads as MailThread[]);
       setStats(data.stats as Stats);
       setDaily((data.daily ?? []) as DailyPoint[]);
+      setAccounts((data.accounts ?? []) as AccountChoice[]);
+      setScheduled((data.scheduled ?? {}) as Record<string, ThreadReplyStatus>);
       setReady(Boolean(data.ready));
       setError(null);
     } catch (caught) {
@@ -255,7 +297,7 @@ export default function MailApp({
     } finally {
       setLoading(false);
     }
-  }, [status, query, days, rejectedOnly]);
+  }, [status, query, days, day, rejectedOnly, account]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(), 200);
@@ -322,6 +364,58 @@ export default function MailApp({
     }
   };
 
+  /** Kijelölhető: jött rá emberi válasz, és még nincs rá időzített levél. */
+  const selectable = (thread: MailThread) =>
+    thread.incoming > 0 &&
+    !thread.autoOnly &&
+    !thread.bounced &&
+    !scheduled[thread.threadId];
+
+  const toggle = (threadId: string) => {
+    setOutcome(null);
+    setSelected((current) =>
+      current.includes(threadId)
+        ? current.filter((id) => id !== threadId)
+        : [...current, threadId],
+    );
+    // A választható csatolmányok az első kijelöléskor töltődnek be.
+    if (files === null) {
+      setFiles([]);
+      void fetch("/api/mail/scheduled", { cache: "no-store" })
+        .then((response) => response.json())
+        .then((data) =>
+          setFiles((data.attachments?.files ?? []) as AttachmentChoice[]),
+        )
+        .catch(() => undefined);
+    }
+  };
+
+  const schedule = async () => {
+    setScheduling(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/mail/scheduled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "schedule",
+          threadIds: selected,
+          attachments: picked,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Hiba");
+      setOutcome(data as ScheduleOutcome);
+      setSelected([]);
+      setPreviewKey((value) => value + 1);
+      await load();
+    } catch (caught) {
+      setError((caught as Error).message);
+    } finally {
+      setScheduling(false);
+    }
+  };
+
   const open = threads.find((thread) => thread.threadId === openId) ?? null;
 
   return (
@@ -338,6 +432,22 @@ export default function MailApp({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {accounts.length > 1 ? (
+            <select
+              value={account}
+              onChange={(event) => setAccount(event.target.value)}
+              aria-label="Melyik fiók levelezése látszik"
+              className="h-9 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm outline-none focus:border-blue-500"
+            >
+              <option value="">Minden fiók</option>
+              {accounts.map((item) => (
+                <option key={item.id} value={item.user.toLowerCase()}>
+                  {item.user}
+                  {item.provider === "resend" ? " (Resend)" : ""}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <button
             type="button"
             onClick={() => void startSync()}
@@ -418,7 +528,13 @@ export default function MailApp({
       ) : null}
 
       {daily.length && !rejectedOnly ? (
-        <MailChart data={daily} days={days} onDaysChange={setDays} />
+        <MailChart
+          data={daily}
+          days={days}
+          onDaysChange={setDays}
+          day={day}
+          onDayChange={setDay}
+        />
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
@@ -453,6 +569,81 @@ export default function MailApp({
         ) : null}
       </div>
 
+      {selected.length ? (
+        <div className="space-y-2 rounded-xl border border-blue-500/40 bg-blue-500/10 p-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium">
+              {selected.length} szál kijelölve
+            </span>
+            <button
+              type="button"
+              onClick={() => void schedule()}
+              disabled={scheduling}
+              className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-40"
+            >
+              {scheduling ? "Időzítés…" : "Válasz időzítése"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelected([])}
+              disabled={scheduling}
+              className="h-9 rounded-lg border border-[var(--border)] px-3 text-xs transition hover:border-blue-500"
+            >
+              Kijelölés törlése
+            </button>
+          </div>
+          <p className="text-xs text-[var(--muted)]">
+            Mindegyikre külön piszkozat készül; jóváhagyás után arról a fiókról
+            megy ki a szálba, amelyikre a válasz jött, a következő szabad
+            helyen. A piszkozatok időzítés után itt lent jelennek meg.
+          </p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+            <span className="text-[var(--muted)]">Csatolmány:</span>
+            {files?.length ? (
+              files.map((file) => (
+                <label key={file.key} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(file.key)}
+                    onChange={() =>
+                      setPicked((current) =>
+                        current.includes(file.key)
+                          ? current.filter((key) => key !== file.key)
+                          : [...current, file.key],
+                      )
+                    }
+                  />
+                  {file.key}
+                </label>
+              ))
+            ) : (
+              <span className="text-[var(--muted)]">
+                nincs fájl a küldő gép attachments mappájában
+              </span>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {outcome ? (
+        <div className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm">
+          <p>
+            {outcome.scheduled} szálra időzítve — a piszkozatok lent készülnek.
+          </p>
+          {outcome.skipped.map((item) => (
+            <p key={item.threadId} className="text-xs text-amber-300">
+              {item.company}: {item.reason}
+            </p>
+          ))}
+        </div>
+      ) : null}
+
+      <ScheduledReplies
+        embedded
+        refreshKey={previewKey}
+        onChanged={() => void load()}
+      />
+
       {/* A lista és a részlet együtt egy képernyőnyi magas, mindkettő saját
           görgetéssel — így a sok szál nem nyújtja meg az oldalt, és a kiválasztott
           szál mindig a lista mellett marad. (53px = a felső menüsáv.) */}
@@ -471,14 +662,26 @@ export default function MailApp({
           ) : (
             <ul className="divide-y divide-[var(--border)]">
               {threads.map((thread) => (
-                <li key={thread.threadId}>
+                <li key={thread.threadId} className="flex items-stretch">
+                  {selectable(thread) ? (
+                    <label className="flex w-9 shrink-0 cursor-pointer items-center justify-center">
+                      <input
+                        type="checkbox"
+                        checked={selected.includes(thread.threadId)}
+                        onChange={() => toggle(thread.threadId)}
+                        aria-label={`${thread.company ?? thread.counterpart} kijelölése válasz időzítéséhez`}
+                      />
+                    </label>
+                  ) : (
+                    <span className="w-9 shrink-0" />
+                  )}
                   <button
                     type="button"
                     onClick={() => {
                       setMessages([]);
                       setOpenId(thread.threadId);
                     }}
-                    className={`w-full space-y-1 px-3 py-2.5 text-left transition hover:bg-[var(--surface-2)] ${
+                    className={`min-w-0 flex-1 space-y-1 py-2.5 pr-3 text-left transition hover:bg-[var(--surface-2)] ${
                       openId === thread.threadId ? "bg-[var(--surface-2)]" : ""
                     }`}
                   >
@@ -509,6 +712,11 @@ export default function MailApp({
                       {thread.autoOnly ? (
                         <span className="text-[11px] text-amber-300">
                           csak automatikus
+                        </span>
+                      ) : null}
+                      {scheduled[thread.threadId] ? (
+                        <span className="rounded-full border border-violet-500/60 bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-300">
+                          válasz: {REPLY_LABELS[scheduled[thread.threadId]]}
                         </span>
                       ) : null}
                     </div>

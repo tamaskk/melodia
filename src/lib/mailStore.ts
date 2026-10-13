@@ -7,6 +7,7 @@
  * begyűjtésnél megtörténik (lásd `inbox.ts`).
  */
 import { ObjectId, type Collection } from "mongodb";
+import { listAccounts } from "./accounts";
 import { getContacts, getDb } from "./mongodb";
 import { rescoreIds } from "./contacts";
 
@@ -24,6 +25,10 @@ export interface MailMessage {
   /** Stabil kulcs: a Gmail sorszáma a postafiókon belül. */
   key: string;
   mailbox: string;
+  /** Melyik saját fiók postafiókjából jött (régi leveleken hiányzik). */
+  account?: string;
+  /** Resend-levél kézbesítési állapota a szolgáltató szerint (pl. `bounced`). */
+  delivery?: string;
   uid: number;
   uidValidity: string;
   /** Gmail beszélgetésazonosító (X-GM-THRID) — ez fogja össze a szálat. */
@@ -56,8 +61,12 @@ export interface MailThread {
   counterpart: string;
   company: string | null;
   contactId: string | null;
+  /** Melyik saját fiókról megy a levelezés. */
+  account: string | null;
   firstAt: string;
   lastAt: string;
+  /** Mely napokon volt levél a szálban (ÉÉÉÉ-HH-NN) — a napra szűréshez. */
+  days: string[];
   messages: number;
   incoming: number;
   outgoing: number;
@@ -135,8 +144,7 @@ export async function writeMailboxState(state: MailboxState): Promise<void> {
  * az adat csak begyűjtéskor változik — szűrésnél és keresésnél kár újra
  * végigfuttatni.
  */
-let cache: { at: number; threads: MailThread[]; stats: MailStats } | null =
-  null;
+let cache: { at: number; threads: MailThread[] } | null = null;
 const CACHE_MS = 60_000;
 
 export function invalidateThreadCache(): void {
@@ -167,6 +175,10 @@ export interface ThreadFilters {
   status?: ThreadStatus | "";
   /** Csak azok a szálak, ahol emberi válasz jött, és az elutasítás volt. */
   rejected?: boolean;
+  /** Csak ennek a saját fióknak a szálai (a fiók címe). */
+  account?: string;
+  /** Csak azok a szálak, ahol ezen a napon (ÉÉÉÉ-HH-NN) ment vagy jött levél. */
+  day?: string;
   limit?: number;
 }
 
@@ -215,6 +227,7 @@ interface ThreadRow {
   subject: string;
   firstAt: string;
   lastAt: string;
+  days: string[];
   messages: number;
   incoming: number;
   outgoing: number;
@@ -224,6 +237,7 @@ interface ThreadRow {
   lastOut: string | null;
   company: string | null;
   contactId: string | null;
+  account: string | null;
   outAddress: string | null;
   anyAddress: string;
   preview: string;
@@ -242,7 +256,7 @@ export async function listThreads(
   const rejected = filters.rejected ? await rejectedContactIds() : null;
   const cached = cache && Date.now() - cache.at < CACHE_MS ? cache : null;
   if (cached) {
-    return applyFilters(cached.threads, cached.stats, filters, rejected);
+    return applyFilters(cached.threads, filters, rejected);
   }
 
   const collection = await mailCollection();
@@ -261,6 +275,8 @@ export async function listThreads(
           subject: { $first: "$subject" },
           firstAt: { $first: "$date" },
           lastAt: { $last: "$date" },
+          // Ugyanaz a napvágás, mint a diagramnál: az ISO szöveg első tíz karaktere.
+          days: { $addToSet: { $substrCP: ["$date", 0, 10] } },
           messages: { $sum: 1 },
           incoming: { $sum: { $cond: [isIn, 1, 0] } },
           outgoing: { $sum: { $cond: [isIn, 0, 1] } },
@@ -270,6 +286,15 @@ export async function listThreads(
           lastOut: { $max: { $cond: [isIn, null, "$date"] } },
           company: { $max: "$company" },
           contactId: { $max: "$contactId" },
+          // A fiók: az új leveleken rajta van, a régieken a kimenő levél feladója.
+          account: {
+            $max: {
+              $ifNull: [
+                "$account",
+                { $cond: [isIn, null, { $toLower: "$from.address" }] },
+              ],
+            },
+          },
           // A cég címe a kimenő levélből a legmegbízhatóbb.
           outAddress: { $max: { $cond: [isIn, null, "$counterpart"] } },
           anyAddress: { $first: "$counterpart" },
@@ -281,14 +306,21 @@ export async function listThreads(
     ])
     .toArray()) as unknown as ThreadRow[];
 
+  const primary =
+    listAccounts()
+      .find((account) => account.provider === "gmail")
+      ?.user.toLowerCase() ?? null;
   const threads: MailThread[] = rows.map((row) => ({
     threadId: row._id,
     subject: row.subject || "(nincs tárgy)",
     counterpart: row.outAddress ?? row.anyAddress ?? "",
     company: row.company ?? null,
     contactId: row.contactId ?? null,
+    // Kimenő levél nélküli régi szál: akkor még csak az elsődleges fiókot olvastuk.
+    account: row.account ?? primary,
     firstAt: row.firstAt,
     lastAt: row.lastAt,
+    days: row.days,
     messages: row.messages,
     incoming: row.incoming,
     outgoing: row.outgoing,
@@ -304,8 +336,16 @@ export async function listThreads(
     preview: row.preview ?? "",
   }));
 
-  // A statisztika a teljes halmazra vonatkozik, nem a szűrt listára — így
-  // látszik, mennyi az összes megkeresés, miközben egy állapotra szűrsz.
+  cache = { at: Date.now(), threads };
+  return applyFilters(threads, filters, rejected);
+}
+
+/**
+ * A számok a fiókra és napra szűrt teljes halmazra vonatkoznak, nem az
+ * állapotra vagy keresésre szűrt listára — így látszik az összes megkeresés
+ * szűrés közben is.
+ */
+function statsOf(threads: MailThread[]): MailStats {
   const stats: MailStats = {
     threads: threads.length,
     answered: threads.filter(
@@ -321,18 +361,23 @@ export async function listThreads(
   const delivered = stats.threads - stats.bounced;
   stats.replyRate =
     delivered > 0 ? Math.round((stats.answered / delivered) * 100) : 0;
-
-  cache = { at: Date.now(), threads, stats };
-  return applyFilters(threads, stats, filters, rejected);
+  return stats;
 }
 
-/** Állapot- és szövegszűrés a kész listán. */
+/** Fiók-, nap-, állapot- és szövegszűrés a kész listán. */
 function applyFilters(
-  threads: MailThread[],
-  stats: MailStats,
+  all: MailThread[],
   filters: ThreadFilters,
   rejected: Set<string> | null,
 ): { threads: MailThread[]; stats: MailStats } {
+  const account = filters.account?.trim().toLowerCase();
+  const day = filters.day;
+  const threads = all.filter(
+    (thread) =>
+      (!account || thread.account === account) &&
+      (!day || thread.days.includes(day)),
+  );
+  const stats = statsOf(threads);
   let rows = threads;
   if (rejected) {
     rows = rows.filter(
@@ -372,14 +417,32 @@ export interface DailyPoint {
  * A hiányzó napokat is visszaadjuk nullával, különben a diagram összenyomná a
  * csendes napokat, és sűrűbbnek látszana a levelezés, mint amilyen.
  */
-export async function dailyCounts(days = 30): Promise<DailyPoint[]> {
+export async function dailyCounts(
+  days = 30,
+  account?: string,
+): Promise<DailyPoint[]> {
   const collection = await mailCollection();
   const from = new Date(Date.now() - (days - 1) * 86_400_000);
   from.setHours(0, 0, 0, 0);
+  const own = account?.trim().toLowerCase();
 
   const rows = (await collection
     .aggregate([
-      { $match: { date: { $gte: from.toISOString() } } },
+      {
+        $match: {
+          date: { $gte: from.toISOString() },
+          ...(own
+            ? {
+                $or: [
+                  { account: own },
+                  // Régi levél, még fiókjelölés nélkül: a feladó vagy a címzett dönt.
+                  { account: null, direction: "out", "from.address": own },
+                  { account: null, direction: "in", "to.address": own },
+                ],
+              }
+            : {}),
+        },
+      },
       {
         $group: {
           // A dátum ISO szövegként van tárolva; az első tíz karakter a nap.

@@ -117,6 +117,16 @@ export interface SentInput {
   lastAt: string | null;
 }
 
+/** Időzített válaszok a szálakba (`thread_replies`) — a fiók sorába számítanak. */
+export interface ReplyInput {
+  accountId: string;
+  /** A napon kiment válaszok. */
+  sent: number;
+  lastAt: string | null;
+  /** Jóváhagyva, szabad helyre vár. */
+  waiting: number;
+}
+
 /** A fiók mentett kiküldő menete (`campaigns`). */
 export interface CampaignInput {
   accountId: string;
@@ -160,6 +170,7 @@ export interface WidgetInput {
   today: string;
   accounts: AccountInput[];
   sent: SentInput[];
+  replies?: ReplyInput[];
   campaigns: CampaignInput[];
   queues: SendQueueInput[];
   stats: StatsInput[];
@@ -204,6 +215,9 @@ function smtpQueues(input: WidgetInput, now: Date): WidgetQueue[] {
   const live = input.date === input.today;
   const sent = new Map(input.sent.map((row) => [row.from.toLowerCase(), row]));
   const campaigns = new Map(input.campaigns.map((row) => [row.accountId, row]));
+  const replies = new Map(
+    (input.replies ?? []).map((row) => [row.accountId, row]),
+  );
   const stats = new Map(input.stats.map((row) => [row.queueId, row]));
 
   // A még be nem töltött queue-k címzettjei fiókonként; múltbeli napon ezek
@@ -240,7 +254,8 @@ function smtpQueues(input: WidgetInput, now: Date): WidgetQueue[] {
       (campaign.status === "running" || campaign.status === "stopping") &&
       !campaign.stopRequested;
 
-    const done = sentRow?.count ?? 0;
+    const reply = replies.get(account.id);
+    const done = (sentRow?.count ?? 0) + (reply?.sent ?? 0);
     const failed = stat?.failed ?? 0;
     // Futó menetnél a sor eleje épp megy, ha a várakozás most járt le (vagy a
     // menet most indult) — régebbi időpont elakadt vagy elavult állapotot jelent.
@@ -252,11 +267,15 @@ function smtpQueues(input: WidgetInput, now: Date): WidgetQueue[] {
     const inProgress = sending ? 1 : 0;
     const pending =
       (active ? campaign.queueLength - inProgress : 0) +
-      (waiting.get(account.id) ?? 0);
+      (waiting.get(account.id) ?? 0) +
+      (live ? (reply?.waiting ?? 0) : 0);
     const total = done + failed + pending + inProgress;
     if (!total && !active) continue;
 
-    const used = Math.max(done, campaign?.sentOnDate ?? 0);
+    const used = Math.max(
+      done,
+      (campaign?.sentOnDate ?? 0) + (reply?.sent ?? 0),
+    );
     const limits = [
       bound.get(account.id) ?? campaign?.dailyLimit ?? null,
       account.cap,
@@ -273,6 +292,7 @@ function smtpQueues(input: WidgetInput, now: Date): WidgetQueue[] {
 
     const lastActivityAt = latest(
       sentRow?.lastAt,
+      reply?.lastAt,
       inDay(stat?.updatedAt),
       inDay(campaign?.updatedAt),
     );

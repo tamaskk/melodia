@@ -15,8 +15,8 @@ import { ImapFlow, type FetchMessageObject, type ListResponse } from "imapflow";
 import { simpleParser, type AddressObject, type ParsedMail } from "mailparser";
 import { credential } from "./env";
 import { createLogger } from "./logger";
-import { ensureAccounts } from "./accounts";
-import { inboxConfig } from "./mailer";
+import { ensureAccounts, listAccounts } from "./accounts";
+import { inboxConfig, type MailerConfig } from "./mailer";
 import { getContacts } from "./mongodb";
 import {
   mailCollection,
@@ -303,6 +303,8 @@ const MAX_TEXT = 20_000;
 async function scanMailbox(
   client: ImapFlow,
   path: string,
+  /** A fiók előtagja az állapotkulcsban; az elsődleges fióknál üres. */
+  scope: string,
   since: Date,
   /** Egyszerre kapja meg az összes borítékot: egy adatbázis-kérdés, nem ezer. */
   decide: (
@@ -322,7 +324,7 @@ async function scanMailbox(
     if (!mailbox || typeof mailbox === "boolean") return result;
 
     const uidValidity = String(mailbox.uidValidity);
-    const saved = await readMailboxState(path);
+    const saved = await readMailboxState(scope + path);
     const fresh = !saved || saved.uidValidity !== uidValidity;
 
     // Folytatás a legutóbbi uid után; első alkalommal (vagy ha a Gmail
@@ -357,7 +359,7 @@ async function scanMailbox(
     }
 
     await writeMailboxState({
-      path,
+      path: scope + path,
       uidValidity,
       lastUid: Math.max(result.maxUid, saved?.lastUid ?? 0),
       syncedAt: new Date().toISOString(),
@@ -373,6 +375,7 @@ async function scanMailbox(
 async function download(
   client: ImapFlow,
   path: string,
+  scope: string,
   scan: ScanResult,
   direction: "in" | "out",
   ownAddress: string,
@@ -427,8 +430,9 @@ async function download(
           : (from?.address ?? ""));
 
       out.push({
-        key: `${uidValidity}:${path}:${message.uid}`,
+        key: `${scope}${uidValidity}:${path}:${message.uid}`,
         mailbox: path,
+        account: ownAddress,
         uid: message.uid,
         uidValidity,
         threadId: String(message.threadId ?? parsed.messageId ?? message.uid),
@@ -459,12 +463,87 @@ async function download(
   return out;
 }
 
+/**
+ * Minden Gmail-fiók postafiókja sorban (a Resendnek nincs postafiókja). Egy
+ * fiók hibája nem állítja meg a többit; ha mind elbukik, az első hiba megy fel.
+ */
 async function run(days: number): Promise<void> {
   await ensureAccounts();
-  const config = inboxConfig();
-  if (!config)
+  const primary = inboxConfig();
+  if (!primary)
     throw new Error("Nincs Gmail-hozzáférés: GMAIL_USER / GMAIL_APP_PASSWORD.");
 
+  const accounts = listAccounts().filter(
+    (account) => account.provider === "gmail",
+  );
+  const totals = { added: 0, threads: 0 };
+  const errors: Error[] = [];
+  for (const config of accounts) {
+    try {
+      // Az elsődleges fiók kulcsai előtag nélküliek — a korábbi állapot érvényes marad.
+      const scope =
+        config.id === primary.id ? "" : `${config.user.toLowerCase()}:`;
+      const result = await syncAccount(config, scope, days);
+      totals.added += result.added;
+      totals.threads += result.threads;
+    } catch (error) {
+      log.error(
+        `${config.user}: a begyűjtés nem sikerült — ${(error as Error).message}`,
+      );
+      errors.push(error as Error);
+    }
+  }
+  if (errors.length === accounts.length && errors[0]) throw errors[0];
+
+  state.added = totals.added;
+  state.threads = totals.threads;
+  state.message =
+    (totals.added > 0
+      ? `${totals.added} új levél (${totals.threads} szálban).`
+      : "Nincs új levél a megkeresésekhez.") +
+    (errors.length
+      ? ` ${errors.length} fiókot nem sikerült beolvasni — részletek a naplóban.`
+      : "");
+
+  // A Resend-fiók kimenő levelei a kontaktokról — postafiókja nincs.
+  state.phase = "Resend-levelek felvétele";
+  try {
+    const { syncResendSent } = await import("./resendMail");
+    state.added += (await syncResendSent()).added;
+  } catch (error) {
+    log.warn(`Resend-levelek kimaradtak: ${(error as Error).message}`);
+  }
+
+  // A válaszok és visszapattanások vissza a kontaktokra — a lista státusza
+  // (Válaszolt / Visszapattant) és a válaszarány ebből számol.
+  state.phase = "státuszok frissítése a kontaktokon";
+  const replies = await syncContactReplies();
+  log.info(
+    `kontakt-státusz: ${replies.replied} válaszolt, ${replies.bounced} visszapattant, ` +
+      `${replies.markedSent} pótlólag elküldöttnek jelölve (${replies.contacts} kontakt levelezéssel)`,
+  );
+
+  // Az új válaszok osztályozása és a válaszpiszkozat (replyTriage.ts).
+  state.phase = "új válaszok osztályozása";
+  try {
+    const { triagePending } = await import("./replyTriage");
+    const triage = await triagePending();
+    if (triage.triaged) {
+      log.info(
+        `válaszok: ${triage.triaged} osztályozva, ${triage.outcomes} kimenetel magától`,
+      );
+    }
+  } catch (error) {
+    log.warn(`válasz-osztályozás kimaradt: ${(error as Error).message}`);
+  }
+}
+
+/** Egy fiók Küldött és Beérkező mappája. */
+async function syncAccount(
+  config: MailerConfig,
+  scope: string,
+  days: number,
+): Promise<{ added: number; threads: number }> {
   const own = config.user.toLowerCase();
   const since = new Date(Date.now() - days * 86_400_000);
   const client = connect(config.user, config.password);
@@ -478,10 +557,11 @@ async function run(days: number): Promise<void> {
     const context = await knownContext();
 
     // 1. Küldött levelek: melyik ment adatbázisbeli céghez.
-    state.phase = "küldött levelek átnézése";
+    state.phase = `${own}: küldött levelek átnézése`;
     const sentScan = await scanMailbox(
       client,
       sentPath,
+      scope,
       since,
       async (envelopes) => {
         const recipientsOf = (message: FetchMessageObject) =>
@@ -514,8 +594,15 @@ async function run(days: number): Promise<void> {
       },
     );
 
-    state.phase = "küldött levelek letöltése";
-    const sentMessages = await download(client, sentPath, sentScan, "out", own);
+    state.phase = `${own}: küldött levelek letöltése`;
+    const sentMessages = await download(
+      client,
+      sentPath,
+      scope,
+      sentScan,
+      "out",
+      own,
+    );
     for (const message of sentMessages) {
       context.threads.add(message.threadId);
       const domain = domainOf(message.counterpart);
@@ -523,10 +610,11 @@ async function run(days: number): Promise<void> {
     }
 
     // 2. Beérkezők: ami ezekre a szálakra vagy ezektől a cégektől jön.
-    state.phase = "beérkező levelek átnézése";
+    state.phase = `${own}: beérkező levelek átnézése`;
     const inboxScan = await scanMailbox(
       client,
       "INBOX",
+      scope,
       since,
       async (envelopes) => {
         const senderOf = (message: FetchMessageObject) =>
@@ -570,45 +658,27 @@ async function run(days: number): Promise<void> {
       },
     );
 
-    state.phase = "beérkező levelek letöltése";
-    const inboxMessages = await download(client, "INBOX", inboxScan, "in", own);
+    state.phase = `${own}: beérkező levelek letöltése`;
+    const inboxMessages = await download(
+      client,
+      "INBOX",
+      scope,
+      inboxScan,
+      "in",
+      own,
+    );
 
     const added = await saveMessages([...sentMessages, ...inboxMessages]);
-    state.added = added;
-    state.threads = new Set(
-      [...sentMessages, ...inboxMessages].map((message) => message.threadId),
-    ).size;
-    state.message =
-      added > 0
-        ? `${added} új levél (${state.threads} szálban).`
-        : "Nincs új levél a megkeresésekhez.";
     log.info(
-      `kész: ${state.scanned} levél átnézve, ${added} új mentve ` +
+      `${own} kész: ${added} új mentve ` +
         `(küldött: ${sentMessages.length}, beérkező: ${inboxMessages.length})`,
     );
-
-    // A válaszok és visszapattanások vissza a kontaktokra — a lista státusza
-    // (Válaszolt / Visszapattant) és a válaszarány ebből számol.
-    state.phase = "státuszok frissítése a kontaktokon";
-    const replies = await syncContactReplies();
-    log.info(
-      `kontakt-státusz: ${replies.replied} válaszolt, ${replies.bounced} visszapattant, ` +
-        `${replies.markedSent} pótlólag elküldöttnek jelölve (${replies.contacts} kontakt levelezéssel)`,
-    );
-
-    // Az új válaszok osztályozása és a válaszpiszkozat (replyTriage.ts).
-    state.phase = "új válaszok osztályozása";
-    try {
-      const { triagePending } = await import("./replyTriage");
-      const triage = await triagePending();
-      if (triage.triaged) {
-        log.info(
-          `válaszok: ${triage.triaged} osztályozva, ${triage.outcomes} kimenetel magától`,
-        );
-      }
-    } catch (error) {
-      log.warn(`válasz-osztályozás kimaradt: ${(error as Error).message}`);
-    }
+    return {
+      added,
+      threads: new Set(
+        [...sentMessages, ...inboxMessages].map((message) => message.threadId),
+      ).size,
+    };
   } finally {
     await client.logout().catch(() => client.close());
   }

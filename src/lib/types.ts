@@ -84,6 +84,8 @@ export interface Contact {
   /** Follow-up: jóváhagyva (a kiküldő ezeket viszi), illetve kiment. */
   followUpApprovedAt?: string | null;
   followUpSentAt?: string | null;
+  /** Időzített válasz a szálba (threadReplies.ts): mikor ment ki. */
+  threadReplySentAt?: string | null;
 
   /** Interjú-brief (interviewBrief.ts) — interjú előtti felkészüléshez. */
   interviewBrief?: {
