@@ -393,7 +393,7 @@ export default function FilterBar({
                   value,
                   label: SOURCE_LABELS[value] ?? value,
                   // A nyers kulcsra is lehessen keresni: "it-companies-pl".
-                  keywords: value.replace(/-/g, " "),
+                  keywords: value.replace(/[-_]/g, " "),
                 })),
             ]}
           />
