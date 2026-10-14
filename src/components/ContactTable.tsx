@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
+import { COUNTRY_LABELS, sourceLabel } from "@/data";
 import { copyToClipboard } from "@/lib/clipboard";
 import { companyLink, composeLink, type MailMode } from "@/lib/mailto";
 import { STAGE_BY_VALUE, stageOf, type Stage } from "@/lib/stage";
@@ -536,7 +536,7 @@ export default function ContactTable({
 
                 <td className="px-3 py-2.5 align-top">
                   <span className="inline-block rounded-full border border-[var(--border)] px-2 py-0.5 text-[11px] text-[var(--muted)]">
-                    {SOURCE_LABELS[contact.source] ?? contact.source}
+                    {sourceLabel(contact.source)}
                   </span>
                 </td>
 

@@ -196,6 +196,29 @@ export const COUNTRIES: Record<string, CountryInfo> = {
   ZA: { hu: "Dél-afrikai Köztársaság", en: "South Africa", flag: "🇿🇦" },
   ZM: { hu: "Zambia", en: "Zambia", flag: "🇿🇲" },
   ZW: { hu: "Zimbabwe", en: "Zimbabwe", flag: "🇿🇼" },
+  SY: { hu: "Szíria", en: "Syria", flag: "🇸🇾" },
+  VG: { hu: "Brit Virgin-szigetek", en: "British Virgin Islands", flag: "🇻🇬" },
+  CU: { hu: "Kuba", en: "Cuba", flag: "🇨🇺" },
+  GI: { hu: "Gibraltár", en: "Gibraltar", flag: "🇬🇮" },
+  SN: { hu: "Szenegál", en: "Senegal", flag: "🇸🇳" },
+  AS: { hu: "Amerikai Szamoa", en: "American Samoa", flag: "🇦🇸" },
+  MC: { hu: "Monaco", en: "Monaco", flag: "🇲🇨" },
+  SC: { hu: "Seychelle-szigetek", en: "Seychelles", flag: "🇸🇨" },
+  MZ: { hu: "Mozambik", en: "Mozambique", flag: "🇲🇿" },
+  BI: { hu: "Burundi", en: "Burundi", flag: "🇧🇮" },
+  GN: { hu: "Guinea", en: "Guinea", flag: "🇬🇳" },
+  BF: { hu: "Burkina Faso", en: "Burkina Faso", flag: "🇧🇫" },
+};
+
+/**
+ * Régi vagy nem szabványos kódok, amiket a forráslisták még használnak
+ * (GoodFirms). A Jugoszláviát nem lehet egy mai országra visszavezetni.
+ */
+const LEGACY_CODES: Record<string, string> = {
+  FX: "FR", // Franciaország európai része
+  DY: "BJ", // Dahomey → Benin
+  HV: "BF", // Felső-Volta → Burkina Faso
+  YU: "INT", // Jugoszlávia
 };
 
 /** Ékezet nélküli, kisbetűs alak az összehasonlításhoz. */
@@ -227,6 +250,7 @@ export function toCountryCode(raw: string): string {
   const upper = value.toUpperCase();
   // Kétbetűs ISO-kód, plusz a saját "INT" (nemzetközi) kódunk.
   if (/^[A-Z]{2,3}$/.test(upper) && COUNTRIES[upper]) return upper;
+  if (LEGACY_CODES[upper]) return LEGACY_CODES[upper];
   const folded = fold(value);
   return LOOKUP[folded] ?? LOOKUP[folded.replace(/ /g, "")] ?? "";
 }

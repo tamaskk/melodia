@@ -49,6 +49,52 @@ export const SOURCE_LABELS: Record<string, string> = {
   clutch_companies_unknown: `${COUNTRIES.INT.flag} Clutch Companies · ismeretlen ország`,
 };
 
+/** Rövidítések, amiket a GoodFirms-kategóriában nem elég nagybetűvel kezdeni. */
+const CATEGORY_WORDS: Record<string, string> = {
+  ai: "AI",
+  ios: "iOS",
+  ui: "UI",
+  ux: "UX",
+  seo: "SEO",
+  erp: "ERP",
+  crm: "CRM",
+  iot: "IoT",
+  saas: "SaaS",
+};
+
+/**
+ * Forráskulcs → megjeleníthető címke. A fix címkéken túl a GoodFirms-importok
+ * kulcsait is felismeri: `goodfirms_companies_[kategória_]ország`, pl.
+ * `goodfirms_companies_android_us` → „🇺🇸 GoodFirms · Android · Egyesült Államok”.
+ * Ismeretlen kulcsnál magát a kulcsot adja vissza.
+ */
+export function sourceLabel(source: string): string {
+  const fixed = SOURCE_LABELS[source];
+  if (fixed) return fixed;
+
+  // `_unknown`: a forrás sem tudta az országot — nálunk ez a Nemzetközi.
+  const goodfirms = /^goodfirms_companies_(?:(.+)_)?([a-z]{2,3}|unknown)$/.exec(
+    source,
+  );
+  const country =
+    goodfirms &&
+    COUNTRIES[goodfirms[2] === "unknown" ? "INT" : goodfirms[2].toUpperCase()];
+  if (!goodfirms || !country) return source;
+
+  const category = goodfirms[1]
+    // `webDevelopment`, `web_development` és `web-development` is jöhet.
+    ?.split(/[_-]+|(?=[A-Z])/)
+    .map(
+      (word) =>
+        CATEGORY_WORDS[word.toLowerCase()] ??
+        word.charAt(0).toUpperCase() + word.slice(1),
+    )
+    .join(" ");
+  return [`${country.flag} GoodFirms`, category, country.hu]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 export const GENERATED_AT = dataset.generatedAt;
 
 /**

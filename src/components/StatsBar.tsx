@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { SOURCE_LABELS } from "@/data";
+import { sourceLabel } from "@/data";
 import type { Stats } from "@/lib/types";
 import { formatNumber } from "@/lib/format";
 
@@ -139,7 +139,7 @@ export default function StatsBar({
             className="rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-1.5 text-xs"
           >
             <span className="text-[var(--muted)]">
-              {SOURCE_LABELS[row._id] ?? row._id}
+              {sourceLabel(row._id)}
             </span>{" "}
             <span className="font-semibold tabular-nums">
               {formatNumber(row.done)}/{formatNumber(row.count)}

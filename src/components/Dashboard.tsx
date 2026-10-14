@@ -11,7 +11,7 @@ import StatsBar from "./StatsBar";
 import SendPanel from "./SendPanel";
 import SweepPanel from "./SweepPanel";
 import PeopleSweepPanel from "./PeopleSweepPanel";
-import { SOURCE_LABELS } from "@/data";
+import { SOURCE_LABELS, sourceLabel } from "@/data";
 import { KINDS, KIND_LABELS } from "@/lib/importSchema";
 import { useMailMode } from "@/lib/useMailMode";
 import {
@@ -785,7 +785,7 @@ export default function Dashboard({
                   .sort()
                   .map((value) => (
                     <option key={value} value={value}>
-                      {SOURCE_LABELS[value] ?? value}
+                      {sourceLabel(value)}
                     </option>
                   ))}
               </select>

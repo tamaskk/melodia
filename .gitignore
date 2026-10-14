@@ -51,3 +51,6 @@ attachments/*
 
 # Claude Code — a személyes eltérések nem verziókövetettek
 .claude/settings.local.json
+
+# nagy importfájlok (több száz MB) — helyben maradnak
+/json/

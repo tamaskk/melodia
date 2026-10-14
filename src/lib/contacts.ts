@@ -742,10 +742,14 @@ export async function upsertContacts(
   const now = new Date().toISOString();
 
   // Hand-edited fields must survive a re-import, so look up what to skip.
+  // Csak az érintett kulcsokra — darabolt importnál ez kérésenként fut le.
   const edited = new Map<string, Set<string>>();
   const existing = await collection
     .find(
-      { manualFields: { $exists: true, $ne: [] } },
+      {
+        key: { $in: contacts.map((contact) => contact.key) },
+        manualFields: { $exists: true, $ne: [] },
+      },
       { projection: { key: 1, manualFields: 1 } },
     )
     .toArray();
