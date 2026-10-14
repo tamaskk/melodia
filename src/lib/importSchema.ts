@@ -85,6 +85,122 @@ function asArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+/** "51-200" → [51, 200], "10000+" → [10000, Infinity]. */
+const SIZE_BOUNDS = COMPANY_SIZES.flatMap((size) => {
+  const match = /^(\d+)(?:-(\d+)|\+)$/.exec(size);
+  return match
+    ? [
+        {
+          size,
+          lo: Number(match[1]),
+          hi: match[2] ? Number(match[2]) : Infinity,
+        },
+      ]
+    : [];
+});
+
+/**
+ * Idegen létszám-sáv → a miénk. A sáv mértani közepét tesszük a saját sávunkba,
+ * így a GoodFirms `10-49` → `11-50`, `50-249` → `51-200`, `250-999` → `201-500`,
+ * `1000-9999` → `1001-5000`, `2-9` és `1` → `1-10`. Felismerhetetlennél null.
+ */
+export function toCompanySize(raw: string): CompanySize | null {
+  const value = raw
+    .replace(/\s|\u00a0|,/g, "")
+    .replace(/–|—/g, "-")
+    .replace(/(employees|fő|fo)$/i, "");
+  if ((COMPANY_SIZES as readonly string[]).includes(value)) {
+    return value as CompanySize;
+  }
+  const match = /^(\d+)(?:-(\d+)|\+)?$/.exec(value);
+  if (!match) return null;
+  const lo = Number(match[1]);
+  const mid = match[2] ? Math.sqrt(lo * Number(match[2])) : lo;
+  return (SIZE_BOUNDS.find((bound) => mid >= bound.lo && mid <= bound.hi)
+    ?.size ?? null) as CompanySize | null;
+}
+
+/**
+ * Ország a sorból: a `country` mező, ha hiányzik, a forráskulcs vége
+ * (`goodfirms_companies_android_in` → IN), aztán a GoodFirms-országnév.
+ * Amit nem ismerünk fel, az `INT` (nemzetközi) — később pontosítható.
+ */
+function resolveCountry(row: ImportRow): { code: string; note?: string } {
+  const raw = asString(row.country) ?? "";
+  if (raw) {
+    const code = toCountryCode(raw);
+    if (code) return { code };
+    return {
+      code: "INT",
+      note: `Nem ismerem fel ezt az országot: "${raw}" — Nemzetközi (INT) lett, később pontosítható.`,
+    };
+  }
+  const extra = row as Record<string, unknown>;
+  const suffixes = [asString(row.source), asString(row.key)?.split(":")[0]]
+    .map((value) => /[_-]([a-z]{2})$/i.exec(value ?? "")?.[1] ?? "")
+    .filter(Boolean);
+  const goodfirms = (extra.goodfirms ?? {}) as Record<string, unknown>;
+  for (const candidate of [
+    ...suffixes,
+    asString(goodfirms.countryName) ?? "",
+    asString(goodfirms.location)?.split(",").pop() ?? "",
+  ]) {
+    const code = candidate && toCountryCode(candidate);
+    if (code) {
+      return {
+        code,
+        note: `Hiányzó ország — a(z) "${candidate.trim()}" alapján ${code}.`,
+      };
+    }
+  }
+  return {
+    code: "INT",
+    note: "Hiányzó ország, és a forrásból sem derül ki — Nemzetközi (INT) lett.",
+  };
+}
+
+/**
+ * A forráslisták (GoodFirms) eltérő alakjait a mi sémánkra hozza, még az
+ * ellenőrzés előtt: létszám-sáv, ország, elavult `meret-*` címke. Minden
+ * változtatást visszaad, hogy az import figyelmeztetésként megmutassa.
+ * A `scripts/fix-import-json.ts` ugyanezt futtatja le fájlon.
+ */
+export function normaliseImportRow(input: ImportRow): {
+  row: ImportRow;
+  notes: { field: string; message: string }[];
+} {
+  const row = { ...input };
+  const notes: { field: string; message: string }[] = [];
+
+  const rawSize = asString(row.size);
+  if (rawSize) {
+    const size = toCompanySize(rawSize);
+    if (size && size !== rawSize) {
+      row.size = size;
+      notes.push({ field: "size", message: `"${rawSize}" → ${size}` });
+      // A forrás saját méret-címkéje a régi sávot mondaná.
+      const tags = asArray(row.tags);
+      if (tags.length) {
+        row.tags = [
+          ...new Set(
+            tags.map((tag) =>
+              tag.startsWith("meret-") ? `meret-${size}` : tag,
+            ),
+          ),
+        ];
+      }
+    }
+  }
+
+  const country = resolveCountry(row);
+  if (country.note) {
+    notes.push({ field: "country", message: country.note });
+  }
+  row.country = country.code;
+
+  return { row, notes };
+}
+
 /**
  * Turns the loose import shape into full Contact documents.
  * Everything the dashboard needs but the user did not supply is derived here.
@@ -151,13 +267,14 @@ export function parseImport(
   const seenKeys = new Set<string>();
 
   rows.forEach((raw, index) => {
-    const row = (raw ?? {}) as ImportRow;
+    const { row, notes } = normaliseImportRow((raw ?? {}) as ImportRow);
     const company = asString(row.company) ?? "";
     const label = company || `#${index + 1}`;
     const fail = (field: string, message: string) =>
       errors.push({ index, company: label, field, message });
     const warn = (field: string, message: string) =>
       warnings.push({ index, company: label, field, message });
+    for (const note of notes) warn(note.field, note.message);
 
     const person = asString(row.person);
 

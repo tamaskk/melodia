@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Combobox from "./Combobox";
-import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
+import { COUNTRY_LABELS, SOURCE_LABELS, sourceLabel } from "@/data";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stage";
 import type { ContactFilters } from "@/lib/types";
@@ -391,7 +391,7 @@ export default function FilterBar({
                 .sort()
                 .map((value) => ({
                   value,
-                  label: SOURCE_LABELS[value] ?? value,
+                  label: sourceLabel(value),
                   // A nyers kulcsra is lehessen keresni: "it-companies-pl".
                   keywords: value.replace(/[-_]/g, " "),
                 })),

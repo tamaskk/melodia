@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
+import { COUNTRY_LABELS, sourceLabel } from "@/data";
 import { copyToClipboard } from "@/lib/clipboard";
 import { companyLink, composeLink, type MailMode } from "@/lib/mailto";
 import { KINDS, KIND_LABELS } from "@/lib/importSchema";
@@ -512,7 +512,7 @@ export default function MessagePanel({
                 </a>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted)]">
                   <span className="rounded-full border border-[var(--border)] px-2 py-0.5">
-                    {SOURCE_LABELS[contact.source] ?? contact.source}
+                    {sourceLabel(contact.source)}
                   </span>
                   <span className="rounded-full border border-[var(--border)] px-2 py-0.5">
                     {KIND_LABELS[draft.kind as keyof typeof KIND_LABELS] ??

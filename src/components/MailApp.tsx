@@ -707,6 +707,7 @@ export default function MailApp({
                         {STATUS_LABELS[thread.status]}
                       </span>
                       <span className="text-[11px] text-[var(--muted)]">
+                        {day && !rejectedOnly ? "aznap " : ""}
                         {thread.messages} levél
                       </span>
                       {thread.autoOnly ? (
