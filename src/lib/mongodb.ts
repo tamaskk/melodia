@@ -1,4 +1,4 @@
-import { Collection, Db, MongoClient } from "mongodb";
+import { Collection, Db, MongoClient, MongoStalePrimaryError } from "mongodb";
 import { CONTACTS_COLLECTION, MONGODB_DB, MONGODB_URI } from "./env";
 import { createLogger } from "./logger";
 import type { Contact } from "./types";
@@ -17,31 +17,85 @@ const globalWithMongo = globalThis as GlobalWithMongo;
 
 const log = createLogger("mongo");
 
+/** Ennyi ideig lehet a klaszter elavultnak látott elsődlegessel, mielőtt újranyitunk. */
+const STALE_PRIMARY_GRACE_MS = 60_000;
+
+type TopologyView = {
+  type: string;
+  servers: Map<string, { error: unknown }>;
+};
+
+/**
+ * Igaz, ha a driver nem lát elsődleges szervert, mert az újat elavultnak
+ * jelölte. Választás közben ez pár másodpercig természetes; ha megmarad, a
+ * klaszter kicserélődött alattunk (Atlas-költöztetés, tierváltás), és a kliens
+ * a régi electionId-re emlékszik — ebből magától sosem gyógyul ki.
+ */
+export function hasStalePrimary(description: TopologyView): boolean {
+  if (description.type === "ReplicaSetWithPrimary") return false;
+  return [...description.servers.values()].some(
+    (server) => server.error instanceof MongoStalePrimaryError,
+  );
+}
+
+/** Ha a kliens beragadt, eldobjuk: a következő kérés frisset nyit. */
+function watchForStalePrimary(
+  client: MongoClient,
+  promise: Promise<MongoClient>,
+) {
+  let timer: NodeJS.Timeout | null = null;
+  client.on("topologyDescriptionChanged", (event) => {
+    if (!hasStalePrimary(event.newDescription)) {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      return;
+    }
+    timer ??= setTimeout(() => {
+      log.warn("a kapcsolat elavult elsődlegesnél ragadt, újranyitom");
+      if (globalWithMongo._melodiaMongoClient === promise) {
+        globalWithMongo._melodiaMongoClient = undefined;
+      }
+      client.close().catch(() => {});
+    }, STALE_PRIMARY_GRACE_MS);
+    // Rövid életű scriptet ne tartson életben az időzítő.
+    timer.unref();
+  });
+}
+
 function createClient(): Promise<MongoClient> {
   const started = Date.now();
   log.info("kapcsolódás az Atlashoz…", { db: MONGODB_DB });
-  return new MongoClient(MONGODB_URI, {
+  const promise: Promise<MongoClient> = new MongoClient(MONGODB_URI, {
     maxPoolSize: 10,
     serverSelectionTimeoutMS: 15000,
   })
     .connect()
     .then((client) => {
       log.info("kapcsolat él", { ms: Date.now() - started });
+      watchForStalePrimary(client, promise);
       return client;
     })
     .catch((error: Error) => {
       log.error("nem sikerült kapcsolódni", error.message);
+      // Sikertelen kapcsolódás ne ragadjon be: a következő kérés újrapróbálja.
+      if (globalWithMongo._melodiaMongoClient === promise) {
+        globalWithMongo._melodiaMongoClient = undefined;
+      }
       throw error;
     });
+  return promise;
 }
 
 // Reuse the connection across hot reloads in dev and across lambda invocations.
-export const clientPromise: Promise<MongoClient> =
-  globalWithMongo._melodiaMongoClient ??
-  (globalWithMongo._melodiaMongoClient = createClient());
+function currentClient(): Promise<MongoClient> {
+  return (globalWithMongo._melodiaMongoClient ??= createClient());
+}
+
+/** A scriptek kliense: rövid életűek, a végén ezt zárják le. */
+export const clientPromise: Promise<MongoClient> = currentClient();
 
 export async function getDb(): Promise<Db> {
-  const client = await clientPromise;
+  const client = await currentClient();
   return client.db(MONGODB_DB);
 }
 

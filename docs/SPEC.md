@@ -126,3 +126,18 @@ szívesen veszem a megkeresést — mellé egy bemutatkozó PDF.
   `src/components/MailApp.tsx`, `src/components/MailChart.tsx`.
 - Hatókörön kívül: tetszőleges kezdő–záró dátumú időszak, és a napra szűrés
   az Elutasítások oldalon.
+
+## Kiegészítés — a beragadt Atlas-kapcsolat újranyitása (2026-10-13)
+
+**Miért:** az Atlas M0 → Flex költöztetése után a mindig futó példány fél napig
+nem küldött és nem gyűjtött be semmit. A driver a régi klaszter `electionId`-jére
+emlékezett, az új elsődlegest elavultnak jelölte (`primary marked stale due to
+electionId/setVersion mismatch`), és ebből újraindítás nélkül nem gyógyult ki.
+
+**Mit csinál:** a `src/lib/mongodb.ts` figyeli a kliens topológiáját. Ha 60
+másodpercig nincs elsődleges, és ennek oka elavultnak jelölt szerver, a klienst
+eldobja és lezárja; a következő `getDb()` frisset nyit. Rövid, választás közbeni
+elavult jelzésre nem reagál. A sikertelen első kapcsolódás sem ragad be többé.
+
+**Hatókörön kívül:** a közben elszállt műveletek újrapróbálása — azok a saját
+ütemükben (queue-ellenőrzés, következő szinkron) futnak újra.

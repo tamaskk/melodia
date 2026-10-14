@@ -25,12 +25,28 @@ export const COUNTRY_LABELS: Record<string, string> = Object.fromEntries(
 export const SOURCE_LABELS: Record<string, string> = {
   ...dataset.sourceLabels,
   ...Object.fromEntries(
-    Object.entries(COUNTRIES).map(([code, info]) => [
-      `it-companies-${code.toLowerCase()}`,
-      // Az ország neve is benne van, hogy a keresőben "lengyel"-re előjöjjön.
-      `${info.flag} IT cégek · ${info.hu}`,
+    Object.entries(COUNTRIES).flatMap(([code, info]) => [
+      [
+        `it-companies-${code.toLowerCase()}`,
+        // Az ország neve is benne van, hogy a keresőben "lengyel"-re előjöjjön.
+        `${info.flag} IT cégek · ${info.hu}`,
+      ],
+      // Az ismeretlen országú Clutch-cégek forrása külön kulcs, lásd lent.
+      ...(code === "INT"
+        ? []
+        : [
+            [
+              `clutch_companies_${code.toLowerCase()}`,
+              `${info.flag} Clutch Companies ${code}`,
+            ],
+          ]),
     ]),
   ),
+  // A Clutch három országot nem ISO-kóddal jelöl, a forrás neve ezt őrzi.
+  clutch_companies_yu: `${COUNTRIES.RS.flag} Clutch Companies RS`,
+  clutch_companies_fx: `${COUNTRIES.FR.flag} Clutch Companies FR`,
+  clutch_companies_dy: `${COUNTRIES.BJ.flag} Clutch Companies BJ`,
+  clutch_companies_unknown: `${COUNTRIES.INT.flag} Clutch Companies · ismeretlen ország`,
 };
 
 export const GENERATED_AT = dataset.generatedAt;
