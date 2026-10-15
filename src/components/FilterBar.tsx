@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Combobox from "./Combobox";
+import MultiCombobox from "./MultiCombobox";
 import { COUNTRY_LABELS, SOURCE_LABELS, sourceLabel } from "@/data";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stage";
@@ -376,12 +377,12 @@ export default function FilterBar({
           className="h-9 min-w-[220px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm outline-none placeholder:text-[var(--muted)] focus:border-blue-500"
         />
         <div className="w-full sm:w-72 [&>div>span:first-child]:sr-only">
-          <Combobox
+          <MultiCombobox
             label="Forrás"
-            value={filters.source ?? ""}
-            onChange={(source) => onChange({ source })}
-            emptyLabel="Minden forrás"
-            placeholder="Forrás — írj rá: lengyel, toborzó…"
+            values={(filters.source ?? "").split(",").filter(Boolean)}
+            onChange={(sources) => onChange({ source: sources.join(",") })}
+            unit="forrás"
+            placeholder="Minden forrás — írj rá: lengyel, toborzó…"
             options={[
               // A facetből jövő forrásokat is mutatjuk: kézzel átállított sorok
               // is szűrhetők legyenek, akkor is, ha nincs hozzájuk címke.

@@ -44,7 +44,13 @@ export function buildQuery(filters: ContactFilters): Filter<Contact> {
       and.push({ [field]: value } as Filter<Contact>);
   };
 
-  eq("source", filters.source);
+  // Több forrás vesszővel elválasztva jön a szűrőből: "a,b,c".
+  const sources = (filters.source ?? "")
+    .split(",")
+    .map((source) => source.trim())
+    .filter((source) => source && source !== "all");
+  if (sources.length === 1) and.push({ source: sources[0] });
+  if (sources.length > 1) and.push({ source: { $in: sources } });
   eq("kind", filters.kind);
   eq("channel", filters.channel);
   eq("country", filters.country);
