@@ -202,6 +202,7 @@ export interface ContactDoc extends Contact {
 
 export interface ContactFilters {
   q?: string;
+  /** Egy vagy több forráskulcs, vesszővel elválasztva. */
   source?: string;
   kind?: string;
   channel?: string;
