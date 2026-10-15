@@ -1,4 +1,4 @@
-import { COUNTRIES, countryLabel } from "@/lib/countries";
+import { COUNTRIES, countryLabel, toCountryCode } from "@/lib/countries";
 import type { Contact } from "@/lib/types";
 import imported from "./imported.json";
 
@@ -47,6 +47,7 @@ export const SOURCE_LABELS: Record<string, string> = {
   clutch_companies_fx: `${COUNTRIES.FR.flag} Clutch Companies FR`,
   clutch_companies_dy: `${COUNTRIES.BJ.flag} Clutch Companies BJ`,
   clutch_companies_unknown: `${COUNTRIES.INT.flag} Clutch Companies · ismeretlen ország`,
+  "kezi-felvetel": "Kézi felvétel",
 };
 
 /** Rövidítések, amiket a GoodFirms-kategóriában nem elég nagybetűvel kezdeni. */
@@ -76,9 +77,10 @@ export function sourceLabel(source: string): string {
   const goodfirms = /^goodfirms_companies_(?:(.+)_)?([a-z]{2,3}|unknown)$/.exec(
     source,
   );
+  // A régi kódokat (yu, fx, dy, hv) is ugyanúgy fordítjuk, mint importkor.
   const country =
     goodfirms &&
-    COUNTRIES[goodfirms[2] === "unknown" ? "INT" : goodfirms[2].toUpperCase()];
+    COUNTRIES[goodfirms[2] === "unknown" ? "INT" : toCountryCode(goodfirms[2])];
   if (!goodfirms || !country) return source;
 
   const category = goodfirms[1]
