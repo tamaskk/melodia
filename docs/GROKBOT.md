@@ -270,19 +270,17 @@ Egy mentés legfeljebb **12 embert** vesz át, egy név csak egyszer szerepelhet
 1. **A keresés nyoma mindig rákerül a sorra** (`emailSearchedAt`, a teljes
    eredmény az `emailSearch` mezőben). Ettől a cég többé nem jön vissza a
    `/api/bot/next`-ből — akkor sem, ha `email: null` ment.
-2. **A cím akkor lesz a cég elsődleges címe** (`primaryEmail`), ha mind a négy
-   igaz:
-   - formailag érvényes,
-   - a soron még nincs cím,
-   - a `confidence` `high` vagy `medium`,
-   - a `source` érvényes `http(s)` URL.
+2. **A cím a cég elsődleges címe lesz** (`primaryEmail`), ha formailag
+   érvényes, és a soron még nincs cím. A megbízhatóság és a forrás nem
+   feltétel — a cél, hogy kimenjen a levél.
 
    Ilyenkor a sor megkapja a `van-email` és `kutatott-email` címkét, a
-   jegyzet végére pedig odakerül a forrás.
-3. **Ha bármelyik feltétel nem teljesül, a cím nem vész el**: javaslatként
-   megmarad a keresés eredményében, a felületen a „javasolt cím" szűrő alatt
-   látszik, és kézzel elfogadható. A válasz `emailRejected` mezője megmondja,
-   melyik feltételen bukott el.
+   jegyzet végére pedig odakerül a forrás. Ha a `confidence` `low`, vagy nincs
+   `source` URL, a sor `ellenorizetlen-email` címkét is kap, így kiküldés
+   előtt szűrhető.
+3. **Ha a soron már van cím, az új nem írja felül**: javaslatként megmarad a
+   keresés eredményében, a felületen a „javasolt cím" szűrő alatt látszik, és
+   kézzel elfogadható. A válasz `emailRejected` mezője megmondja, miért.
 4. **A `website` és `linkedinUrl`** csak hiányzó mezőt tölt ki, meglévőt nem ír
    felül.
 5. **Az emberek** hozzáadódnak a sor meglévő embereihez: név szerint
