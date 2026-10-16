@@ -105,20 +105,17 @@ export async function saveBotResult(
     model,
   });
 
-  // Csak forrással alátámasztott címet írunk be, és csak üres sorba.
-  const fill =
-    Boolean(finding.email) &&
-    !contact.primaryEmail &&
-    finding.confidence !== "low" &&
-    source !== null;
+  // Minden érvényes cím bekerül, de csak üres sorba — a cél, hogy menjen ki
+  // levél. A bizonytalant (low vagy forrás nélküli) megcímkézzük, hogy kiküldés
+  // előtt szűrhető legyen.
+  const fill = Boolean(finding.email) && !contact.primaryEmail;
+  const unverified = finding.confidence === "low" || source === null;
 
   let emailRejected: string | null = null;
   if (!fill && typeof body.email === "string" && body.email.trim()) {
-    if (!finding.email) emailRejected = "formailag hibás cím";
-    else if (contact.primaryEmail) emailRejected = "a sornak már van címe";
-    else if (finding.confidence === "low")
-      emailRejected = "low megbízhatóság — csak javaslatként tároltuk";
-    else emailRejected = "hiányzik a forrás URL — csak javaslatként tároltuk";
+    emailRejected = !finding.email
+      ? "formailag hibás cím"
+      : "a sornak már van címe — javaslatként tároltuk";
   }
 
   const patch: Record<string, unknown> = {};
@@ -129,9 +126,10 @@ export async function saveBotResult(
         ...contact.tags.filter((tag) => tag !== "nincs-email"),
         "van-email",
         "kutatott-email",
+        ...(unverified ? ["ellenorizetlen-email"] : []),
       ]),
     ];
-    patch.note = [contact.note, `e-mail forrása: ${source}`]
+    patch.note = [contact.note, `e-mail forrása: ${source ?? "nincs megadva"}`]
       .filter(Boolean)
       .join(" · ");
   }
