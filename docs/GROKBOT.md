@@ -18,8 +18,8 @@ A 2. rész önállóan is megáll: egy az egyben bemásolható a bot utasítása
 
 | | Útvonal | Mit csinál |
 | --- | --- | --- |
-| Kiadás | `GET /api/bot/next` | Visszaad **egy** céget, aminek nincs e-mail címe, és még sosem kerestünk hozzá. Nem ír semmit. |
-| Mentés | `POST /api/bot/save` | Elmenti a kutatás eredményét a cégre. Ettől a cég kikerül a sorból. |
+| Kiadás | `GET /api/bot/next` | Visszaad **egy** céget, aminek nincs e-mail címe, és még sosem kerestünk hozzá — és **lefoglalja** (`botStatus: "in-progress"`), hogy más bot ne kapja meg. |
+| Mentés | `POST /api/bot/save` | Elmenti a kutatás eredményét a cégre, és felszabadítja a foglalást (`botStatus: "done"`). Ettől a cég kikerül a sorból. |
 
 - **Kulcs, token, fejléc nem kell.** A mentésnél egyetlen fejléc kötelező:
   `Content-Type: application/json`.
@@ -40,9 +40,11 @@ A ciklus:
 └── POST /api/bot/save   (MINDIG, akkor is, ha semmit nem találtál)
 ```
 
-A sorból egy cég attól tűnik el, hogy a mentés rákerül. **Ha a bot mentés
-nélkül kér újat, ugyanazt a céget kapja vissza.** Ezért minden kiadott cégre
-kell egy mentés — a „nem találtam semmit" is eredmény.
+A kiadott cég foglalt, amíg a mentés meg nem érkezik, vagy a foglalás le nem
+jár (alapból 30 perc). **Ha a bot mentés nélkül kér újat, a régi cég a
+lejáratig senkinek nem jön ki, utána pedig újra kiadjuk.** Ezért minden
+kiadott cégre kell egy mentés — a „nem találtam semmit" is eredmény: elég
+`{ "id": "…", "email": null }`.
 
 ---
 
@@ -85,17 +87,17 @@ Ugyanazok, mint a felület szűrősávjában. Mind elhagyható; az `all` érték
 | `followUp` | `due`, `approved` | Esedékes follow-up. |
 | `sort` | lásd lent | Melyik cég jön először. |
 | `skip` | `0`, `1`, `2`, … | Ennyi céget átugrik a sor elejéről. |
+| `bot` | pl. `grok-1` | A bot neve — a foglalásra kerül (`botClaimedBy`), a naplóban látszik. Párhuzamos botoknál mindegyik más nevet kapjon. |
+| `lease` | `1`–`240` | Hány percig foglalt a kiadott cég, ha nem jön mentés. Alap: `30`. |
 
 **Rendezés (`sort`)** — ez dönti el, melyik *egy* céget kapod. Alapértelmezés:
-`score`, vagyis a legjobban illeszkedő cég jön először.
+`score`, vagyis a legjobban illeszkedő cég jön először. A kiadásnál ezek
+működnek: `score` · `default` (forrás, majd cégnév) · `company` · `newest`.
+Más értéknél `score` szerint jön.
 
-`score` · `default` (forrás, majd cégnév) · `company` · `company-desc` ·
-`newest` · `oldest` · `updated` · `status` · `person` · `email` · `searched` ·
-`sent-oldest`
-
-**`skip`** — két esetre való: ha egy cég mentése tartósan elbukik, a bot
-`skip=1`-gyel átléphet rajta; és ha több bot fut egyszerre, mindegyik más
-`skip` értékkel kér (lásd „Korlátok").
+**`skip`** — ha egy cég mentése tartósan elbukik, a bot `skip=1`-gyel
+átléphet rajta. Párhuzamos botokhoz **nem kell**: a foglalás miatt mindegyik
+más céget kap.
 
 #### Hogyan küldd a szűrőket
 
@@ -155,18 +157,27 @@ curl -X POST "https://melodia-j2db.vercel.app/api/bot/next" \
     "done": false,
     "starred": false,
     "createdAt": "2026-08-18T20:36:45.296Z",
-    "updatedAt": "2026-08-18T20:36:45.296Z"
+    "updatedAt": "2026-08-18T20:36:45.296Z",
+    "botStatus": "in-progress",
+    "botClaimedAt": "2026-10-16T09:20:50.152Z",
+    "botClaimUntil": "2026-10-16T09:50:50.152Z",
+    "botClaimedBy": "grok-1"
   },
-  "remaining": 146
+  "remaining": 146,
+  "inProgress": 3,
+  "claimUntil": "2026-10-16T09:50:50.152Z"
 }
 ```
 
 - `contact` — a cég **teljes** sora, ahogy az adatbázisban van, semmi nincs
   kihagyva belőle.
-- `remaining` — hány cég felel meg ugyanennek a szűrésnek (ezt a céget is
-  beleszámolva).
-- Ha elfogyott a sor: `{ "contact": null, "remaining": 0 }`, **200-as**
-  státusszal. Ez nem hiba, hanem a leállás jele.
+- `remaining` — hány szabad (nem foglalt) cég felel meg még ugyanennek a
+  szűrésnek, ezt már nem számolva.
+- `inProgress` — hány cég van ugyanebben a szűrésben épp más botnál foglalva.
+- `claimUntil` — eddig a tiéd a cég; addig ments.
+- Ha elfogyott a sor: `{ "contact": null, "remaining": 0, … }`, **200-as**
+  státusszal. Ez nem hiba, hanem a leállás jele. Ha `inProgress` nem nulla,
+  más botok még dolgoznak — a lejárt foglalású cégek később visszajöhetnek.
 
 A kutatáshoz fontos mezők:
 
@@ -185,7 +196,7 @@ A kutatáshoz fontos mezők:
 
 | Státusz | Mikor |
 | --- | --- |
-| `400` | A body nem érvényes JSON objektum, vagy a `skip` nem nemnegatív egész. |
+| `400` | A body nem érvényes JSON objektum, a `skip` nem nemnegatív egész, vagy a `lease` nem 1–240 közötti egész. |
 | `500` | Adatbázis-hiba. Várj, és próbáld újra. |
 
 ---
@@ -290,6 +301,8 @@ Egy mentés legfeljebb **12 embert** vesz át, egy név csak egyszer szerepelhet
    hiányzik, az emberkeresés állapota érintetlen marad.
 6. A sorra írt mezőmódosítások a változásnaplóba (`/history`) „grokbot"
    forrással kerülnek be.
+7. **A foglalás felszabadul:** `botStatus: "done"`, `botResult: "found"` vagy
+   `"none"`. Akkor is, ha csak az `id` jön, vagy `email: null`.
 
 #### Válasz
 
@@ -303,7 +316,9 @@ Egy mentés legfeljebb **12 embert** vesz át, egy név csak egyszer szerepelhet
   "emailSaved": true,
   "emailRejected": null,
   "fields": ["primaryEmail", "tags", "note", "linkedinUrl"],
-  "people": 1
+  "people": 1,
+  "botStatus": "done",
+  "botResult": "found"
 }
 ```
 
@@ -314,6 +329,7 @@ Egy mentés legfeljebb **12 embert** vesz át, egy név csak egyszer szerepelhet
 | `emailRejected` | Ha jött cím, de nem lett elsődleges: az ok. Egyébként `null`. |
 | `fields` | A sorra ténylegesen beírt mezők. |
 | `people` | Hány ember van a soron a mentés után; `null`, ha a kérés nem hozott `people` mezőt. |
+| `botStatus`, `botResult` | Mindig `done`; `found`, ha jött érvényes cím, egyébként `none`. |
 
 #### Hibák
 
@@ -333,10 +349,10 @@ Egy mentés legfeljebb **12 embert** vesz át, egy név csak egyszer szerepelhet
   töröl, meglévő címet nem ír felül —, de nyilvános címen ez így is nyitott
   írási felület. Nyilvános telepítésnél érdemes a hozzáférést hálózati szinten
   szűkíteni.
-- **Nincs foglalás.** A kiadott cég nincs zárolva: ha két bot egyszerre kér,
-  ugyanazt kapják. Egy bot esetén ez nem gond. Több párhuzamos botnál mindegyik
-  kapjon saját, rögzített `skip` értéket (0, 1, 2, …), vagy egymást nem fedő
-  szűrőt (pl. más-más `country`).
+- **Foglalás.** A kiadás és a foglalás egy atomi lépés: akárhány bot kér
+  egyszerre, mindegyik más céget kap. A foglalás a mentésig vagy a `lease`
+  lejártáig él; elhalt bot cége a lejárat után újra kiadható. Ha egy cég
+  kutatása a 30 percnél tovább tarthat, kérj nagyobb `lease`-t.
 - **Elérhetőség.** A bot az éles címet (`https://melodia-j2db.vercel.app`)
   hívja; a `localhost:3000` kívülről nem érhető el. Az első kérés egy
   hosszabb szünet után lassabb lehet (hidegindítás, néhány másodperc).
@@ -639,7 +655,7 @@ megemelt megbízhatósággal.
 | A mentés `400`-at ad | A kérés hibás. Olvasd el az `error` szöveget, javítsd, küldd újra. |
 | A mentés `404`-et ad | A sor időközben megszűnt. Kérj új céget. |
 | Bármelyik hívás `500`-at ad | Várj 5–10 másodpercet, próbáld újra; legfeljebb háromszor. |
-| Ugyanaz a cég jön vissza | Az előző mentés nem sikerült. Mentsd újra; ha háromszor sem megy, kérj `skip=1`-gyel. |
+| Ugyanaz a cég jön vissza | Az előző mentés nem ment át, és a foglalás lejárt. Mentsd újra; ha háromszor sem megy, kérj `skip=1`-gyel. |
 | A kutatás közben elakadsz (időtúllépés, blokkolt oldal) | Mentsd, amid van, és írd le a `notes`-ban, min akadtál el. |
 
 ### 2.4 Gyors ellenőrzőlista mentés előtt

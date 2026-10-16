@@ -58,6 +58,20 @@ export interface Contact {
   tags: string[];
   note: string | null;
 
+  /**
+   * Külső kutatóbot állapota. `in-progress`: egy bot lefoglalta (/api/bot/next),
+   * `done`: elmentette (/api/bot/save). Több bot fut párhuzamosan — a foglalás
+   * miatt nem kapják ugyanazt a céget.
+   */
+  botStatus?: "in-progress" | "done" | null;
+  botClaimedAt?: string | null;
+  /** Eddig él a foglalás; utána a cég újra kiadható (elhalt bot). */
+  botClaimUntil?: string | null;
+  /** Ki foglalta: a `bot` paraméter, ha a bot megadta. */
+  botClaimedBy?: string | null;
+  /** Mentéskor: lett-e cím. */
+  botResult?: "found" | "none" | null;
+
   emailSubject: string;
   emailBody: string;
   linkedinMessage: string | null;

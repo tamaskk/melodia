@@ -5,41 +5,137 @@
  * A bot nem kap külön szabályokat: ugyanaz a szűrő, ugyanaz az ellenőrzés és
  * ugyanaz a beírási feltétel érvényes rá, mint a beépített begyűjtésre.
  */
+import { ObjectId, type Filter } from "mongodb";
 import {
-  countContacts,
+  buildQuery,
   getContactById,
-  listContacts,
   saveEmailSearch,
+  serialize,
   savePeople,
   updateContact,
 } from "./contacts";
 import { normaliseFinding } from "./emailFinder";
 import { createLogger } from "./logger";
+import { getContacts } from "./mongodb";
 import { normalisePeople } from "./peopleFinder";
-import type { ContactDoc, ContactFilters } from "./types";
+import type { Contact, ContactDoc, ContactFilters } from "./types";
 
 const log = createLogger("bot");
 
+/** Ennyi percig foglalja a bot a céget, ha nem ad meg mást. */
+export const DEFAULT_LEASE_MINUTES = 30;
+export const MAX_LEASE_MINUTES = 240;
+
+/** Sorrendek a kiadáshoz — a lista rendezéseivel egyezik, mindhez van index. */
+const CLAIM_SORTS: Record<string, Record<string, 1 | -1>> = {
+  score: { score: -1, company: 1 },
+  company: { company: 1 },
+  newest: { createdAt: -1 },
+  default: { source: 1, company: 1 },
+};
+
 /**
- * Egy cég, amihez még sosem kerestünk e-mailt. A hívó szűrői szűkíthetnek, de
- * a „nincs cím, és nem is kerestük" feltételt nem tudják kikapcsolni.
+ * A következő cég, amihez még sosem kerestünk e-mailt — **lefoglalva**.
+ *
+ * Több bot fut egyszerre, ezért a kiválasztás és a foglalás egy atomi lépés
+ * (`findOneAndUpdate`): két egyszerre érkező kérés sosem kapja ugyanazt a
+ * céget. A foglalás `leaseMinutes` után lejár, így az elhalt bot cége újra
+ * kiadható. A hívó szűrői szűkíthetnek, de a „nincs cím, és nem is kerestük"
+ * feltételt nem tudják kikapcsolni.
  */
-export async function nextUnsearched(
+export async function claimNext(
   filters: ContactFilters,
-  skip = 0,
-): Promise<{ contact: ContactDoc | null; remaining: number }> {
+  options: { skip?: number; leaseMinutes?: number; bot?: string | null } = {},
+): Promise<{
+  contact: ContactDoc | null;
+  remaining: number;
+  inProgress: number;
+  claimUntil: string | null;
+}> {
   const forced: ContactFilters = {
     ...filters,
     hasEmail: "",
     emailSearched: "",
     emailStatus: "unsearched",
-    sort: filters.sort || "score",
   };
-  const [contacts, remaining] = await Promise.all([
-    listContacts(forced, { page: skip, pageSize: 1 }),
-    countContacts(forced),
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const lease = Math.min(
+    MAX_LEASE_MINUTES,
+    Math.max(1, options.leaseMinutes ?? DEFAULT_LEASE_MINUTES),
+  );
+  const until = new Date(now.getTime() + lease * 60_000).toISOString();
+
+  // Szabad: soha nem foglalták, vagy a foglalás lejárt.
+  const free: Filter<Contact> = {
+    $or: [
+      { botStatus: { $ne: "in-progress" } },
+      { botClaimUntil: { $lt: nowIso } },
+    ],
+  } as Filter<Contact>;
+  const query = { $and: [buildQuery(forced), free] } as Filter<Contact>;
+  const sort = CLAIM_SORTS[filters.sort ?? "score"] ?? CLAIM_SORTS.score;
+
+  const collection = await getContacts();
+  let claimed = null;
+  // `skip`: a régi kliensek kedvéért. Foglalásnál ritkán kell, mert a
+  // lefoglalt cég úgyis kimarad a következő kérésből.
+  const skip = Math.max(0, options.skip ?? 0);
+  if (skip > 0) {
+    const target = await collection
+      .find(query, { projection: { _id: 1 } })
+      .sort(sort)
+      .skip(skip)
+      .limit(1)
+      .next();
+    if (target) {
+      claimed = await collection.findOneAndUpdate(
+        { $and: [{ _id: target._id }, free] } as Filter<Contact>,
+        claimSet(nowIso, until, options.bot),
+        { returnDocument: "after" },
+      );
+    }
+  } else {
+    claimed = await collection.findOneAndUpdate(
+      query,
+      claimSet(nowIso, until, options.bot),
+      { sort, returnDocument: "after" },
+    );
+  }
+
+  const [remaining, inProgress] = await Promise.all([
+    collection.countDocuments(query),
+    collection.countDocuments({
+      $and: [
+        buildQuery(forced),
+        { botStatus: "in-progress", botClaimUntil: { $gte: nowIso } },
+      ],
+    } as Filter<Contact>),
   ]);
-  return { contact: contacts[0] ?? null, remaining };
+  if (claimed) {
+    log.info(`kiadva: ${claimed.company}`, {
+      bot: options.bot ?? null,
+      lejar: until,
+      maradt: remaining,
+    });
+  }
+  return {
+    contact: claimed ? serialize(claimed) : null,
+    remaining,
+    inProgress,
+    claimUntil: claimed ? until : null,
+  };
+}
+
+function claimSet(at: string, until: string, bot?: string | null) {
+  return {
+    $set: {
+      botStatus: "in-progress" as const,
+      botClaimedAt: at,
+      botClaimUntil: until,
+      botClaimedBy: bot ?? null,
+    },
+  };
 }
 
 export interface BotSaveResult {
@@ -56,6 +152,9 @@ export interface BotSaveResult {
   fields: string[];
   /** A sor kapcsolattartóinak száma mentés után; `null`, ha a kérés nem hozott embert. */
   people: number | null;
+  /** Mentés után mindig `done` — a foglalás felszabadult. */
+  botStatus: "done";
+  botResult: "found" | "none";
 }
 
 function asUrl(value: unknown): string | null {
@@ -141,6 +240,14 @@ export async function saveBotResult(
 
   if (Object.keys(patch).length) await updateContact(id, patch, "grokbot");
 
+  // A foglalás felszabadul — akkor is, ha semmit nem talált (email: null).
+  const botResult = finding.email ? "found" : "none";
+  await (
+    await getContacts()
+  ).updateOne({ _id: new ObjectId(id) } as Filter<Contact>, {
+    $set: { botStatus: "done", botResult, botClaimUntil: null },
+  });
+
   let people: number | null = null;
   if (Array.isArray(body.people)) {
     const found = normalisePeople({ people: body.people }, model).people;
@@ -169,5 +276,7 @@ export async function saveBotResult(
     emailRejected,
     fields: Object.keys(patch),
     people,
+    botStatus: "done",
+    botResult,
   };
 }

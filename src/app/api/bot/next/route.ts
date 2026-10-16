@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { nextUnsearched } from "@/lib/botApi";
+import { claimNext, MAX_LEASE_MINUTES } from "@/lib/botApi";
 import { filtersFromParams } from "../../contacts/route";
 
 export const dynamic = "force-dynamic";
 
 /**
  * Egy cég a külső kutatóbotnak: nincs e-mail címe, és még nem is kerestünk
- * hozzá. A szűrők ugyanazok, mint a /api/contacts-nál — query-ben vagy JSON
+ * hozzá. A kiadott cég le van foglalva (`botStatus: "in-progress"`), így a
+ * párhuzamosan futó botok mind más céget kapnak. A foglalás a mentésig
+ * (/api/bot/save) vagy a lejáratig él: `lease` perc (alap 30), a `bot`
+ * paraméter a foglaló neve a naplóhoz. A szűrők ugyanazok, mint a /api/contacts-nál — query-ben vagy JSON
  * body-ban (a body nyer). Kulcs nem kell.
  *
  * GET kérés body-ját a Next nem adja át: GET-nél a szűrő query-ben megy,
@@ -48,7 +51,25 @@ async function handle(request: NextRequest) {
       );
     }
 
-    return NextResponse.json(await nextUnsearched(filtersFromParams(params), skip));
+    const lease = params.has("lease") ? Number(params.get("lease")) : undefined;
+    if (
+      lease !== undefined &&
+      (!Number.isInteger(lease) || lease < 1 || lease > MAX_LEASE_MINUTES)
+    ) {
+      return NextResponse.json(
+        { error: `A lease 1 és ${MAX_LEASE_MINUTES} közötti egész (perc) legyen.` },
+        { status: 400 },
+      );
+    }
+    const bot = params.get("bot")?.trim().slice(0, 60) || null;
+
+    return NextResponse.json(
+      await claimNext(filtersFromParams(params), {
+        skip,
+        leaseMinutes: lease,
+        bot,
+      }),
+    );
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
   }
