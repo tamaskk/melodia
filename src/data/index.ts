@@ -81,7 +81,13 @@ export function sourceLabel(source: string): string {
   const country =
     goodfirms &&
     COUNTRIES[goodfirms[2] === "unknown" ? "INT" : toCountryCode(goodfirms[2])];
-  if (!goodfirms || !country) return source;
+  if (!goodfirms || !country) {
+    // Külső API-ból (docs/COMPANY_API.md): gridleads_<üzlettípus>_<ország>.
+    const gridleads = /^gridleads_(.+)_([a-z]{2}|int)$/.exec(source);
+    const where = gridleads && COUNTRIES[toCountryCode(gridleads[2])];
+    if (!gridleads || !where) return source;
+    return `${where.flag} Gridleads · ${gridleads[1].replace(/-/g, " ")} · ${where.hu}`;
+  }
 
   const category = goodfirms[1]
     // `webDevelopment`, `web_development` és `web-development` is jöhet.
