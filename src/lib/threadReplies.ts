@@ -1,8 +1,8 @@
 /**
  * Időzített válaszok meglévő szálakba (`thread_replies`).
  *
- * A levelezés oldalán kijelölt szálakra a küldő gép a helyi Claude CLI-vel
- * (kis modellel) piszkozatot ír; jóváhagyás után a levél annak a fióknak a
+ * A levelezés oldalán kijelölt szálakra a FreeLLMAPI ír piszkozatot (a teljes
+ * szálból); jóváhagyás után a levél annak a fióknak a
  * következő szabad helyén megy ki, amelyikre a válasz érkezett — a szálban, a
  * kiválasztott csatolmányokkal.
  *
@@ -10,20 +10,24 @@
  * keretét használja, a küldési ablakban, a címzett munkaidejében.
  *
  * Felvenni, átírni és jóváhagyni bármelyik példányról lehet; írni és küldeni
- * csak a küldő gép tud (ott van a CLI és az `attachments/` mappa).
+ * csak a saját gép tud (ott fut a FreeLLMAPI, és ott van az `attachments/` mappa).
  */
 import { ObjectId, type Collection } from "mongodb";
-import { askClaude } from "./aiText";
 import { ensureAccounts, getAccount, listAccounts } from "./accounts";
+import { availableAttachments } from "./attachmentIndex";
 import { resolveSelection } from "./attachments";
 import { getContactById } from "./contacts";
-import { credential } from "./env";
 import { createLogger } from "./logger";
-import { mailCollection, stripQuoted } from "./mailStore";
+import { mailCollection, stripQuoted, threadMessages } from "./mailStore";
 import { sendFollowUpEmail } from "./mailer";
 import { getContacts, getDb } from "./mongodb";
 import { QUEUE_WINDOW_FROM, QUEUE_WINDOW_TO, dayKey } from "./queuePlan";
 import { recordSendFailure } from "./queueStats";
+import {
+  assertLlmReachable,
+  generateReplyDraft,
+  isReplyLlmReady,
+} from "./replyLlm";
 import { claimSender, isSender } from "./role";
 import { campaignState } from "./sendCampaign";
 import { liveUsage } from "./sendQueues";
@@ -31,8 +35,6 @@ import { insideWindowAt, timeZoneFor } from "./sendWindow";
 import {
   APPROVABLE,
   EDITABLE,
-  draftFrom,
-  draftPrompt,
   isNoReply,
   replySubject,
   roomToday,
@@ -46,8 +48,17 @@ const log = createLogger("szalvalasz");
 /** Ennyi idő teljen el egy fiók két időzített válasza között. */
 const GAP_MS = 10 * 60_000;
 const TICK_MS = 2 * 60_000;
-/** Egy körben ennyi piszkozat készül — a CLI egyszerre egy folyamat. */
-const DRAFTS_PER_TICK = 5;
+/** FreeLLMAPI-val egyszerre ennyi piszkozat készül — egy nagy kijelölés ne égesse el egyszerre a free keretet. */
+const LLM_CONCURRENCY = 2;
+/** Egy hívásban legfeljebb ennyi FreeLLMAPI-piszkozat (≈ 10 / perc). */
+const LLM_DRAFTS_PER_RUN = 30;
+/** A soron kívüli válaszok köre: ennyi időnként néz rá a küldő gép. */
+const PRIORITY_TICK_MS = 20_000;
+/** Csatolmány a levél nyelve szerint — a modell csak a nyelvet dönti el. */
+const LANGUAGE_ATTACHMENT: Record<string, string> = {
+  hu: "kt_bemutatkozo.pdf",
+  en: "kt_introduce.pdf",
+};
 /** Egy kéréssel ennyi szál időzíthető. */
 export const MAX_PER_REQUEST = 100;
 
@@ -69,6 +80,18 @@ export interface ThreadReply {
   /** Az `attachments/` mappához relatív nevek. */
   attachments: string[];
   status: ThreadReplyStatus;
+  /**
+   * Soron kívül: jóváhagyás után azonnal megy, a cold queue mellett, a napi
+   * keret, a küldési ablak és a 10 perces szünet nélkül.
+   */
+  priority?: boolean;
+  /**
+   * A queue-ban: külön sáv fiókonként, a cold queue mellett, a saját ütemében —
+   * ugyanaz a szünet és munkaidő-ablak, de a napi keretbe nem számít.
+   */
+  inQueue?: boolean;
+  /** A válasz-queue napja (`YYYY-MM-DD`, budapesti idő): előbb nem megy ki. */
+  queueDay?: string | null;
   note: string | null;
   model: string | null;
   createdAt: string;
@@ -98,11 +121,6 @@ async function replies(): Promise<Collection<ThreadReply>> {
     });
   await ready;
   return collection;
-}
-
-/** A piszkozatot író modell: kicsi, mert pár mondatos levélről van szó. */
-function draftModel(): string {
-  return credential("CLAUDE_REPLY_MODEL", "haiku");
 }
 
 interface Incoming {
@@ -324,8 +342,21 @@ function objectIds(ids: string[]): ObjectId[] {
   return ids.filter((id) => ObjectId.isValid(id)).map((id) => new ObjectId(id));
 }
 
-/** Jóváhagyás: innentől a fiók következő szabad helyén kimegy. */
-export async function approveThreadReplies(ids: string[]): Promise<number> {
+/** Hogyan menjen ki a jóváhagyott válasz. */
+export type ReplyMode = "idozites" | "queue" | "soron-kivul";
+
+/**
+ * Jóváhagyás. `idozites`: a fiók következő szabad helyén, a napi keretből ·
+ * `queue`: saját sávban, a cold queue ütemével, keret nélkül · `soron-kivul`:
+ * azonnal, keret nélkül.
+ */
+export async function approveThreadReplies(
+  ids: string[],
+  mode: ReplyMode = "idozites",
+  /** `queue` módban: melyik naptól menjen (`YYYY-MM-DD`). Üresen ma. */
+  day?: string,
+): Promise<number> {
+  const priority = mode === "soron-kivul";
   const now = new Date().toISOString();
   const result = await (
     await replies()
@@ -340,12 +371,19 @@ export async function approveThreadReplies(ids: string[]): Promise<number> {
     {
       $set: {
         status: "jovahagyva",
+        priority,
+        inQueue: mode === "queue",
+        queueDay: mode === "queue" ? (day ?? dayKey(new Date())) : null,
         approvedAt: now,
         updatedAt: now,
         note: null,
       },
     },
   );
+  // A küldő gépen nem várunk a következő körre.
+  if (priority && result.modifiedCount) {
+    void sendPriority().catch(() => undefined);
+  }
   return result.modifiedCount;
 }
 
@@ -400,6 +438,9 @@ export async function regenerateThreadReply(id: string): Promise<boolean> {
         body: "",
         note: null,
         approvedAt: null,
+        priority: false,
+        inQueue: false,
+        queueDay: null,
         updatedAt: now,
         ...(mail
           ? {
@@ -430,6 +471,9 @@ export async function threadRepliesSentOn(
       {
         $match: {
           status: "kiment",
+          // A soron kívüliek és a queue-ban mentek nem a fiók keretéből mennek.
+          priority: { $ne: true },
+          inQueue: { $ne: true },
           sentAt: { $gte: range.start, $lt: range.end },
         },
       },
@@ -461,7 +505,60 @@ async function fail(
   );
 }
 
-/** Egy piszkozat megírása a CLI-vel. */
+/**
+ * Stílusminta a FreeLLMAPI-nak: a legutóbbi kiment saját válaszok, nyelvenként
+ * kettő — ezek hangját és hosszát kövesse.
+ */
+async function styleExamples(): Promise<string[]> {
+  const collection = await replies();
+  const recent = await Promise.all(
+    ["hu", "en"].map((language) =>
+      collection
+        .find(
+          { status: "kiment", language },
+          { projection: { _id: 0, body: 1 } },
+        )
+        .sort({ sentAt: -1 })
+        .limit(2)
+        .toArray(),
+    ),
+  );
+  return recent.flat().map((doc) => doc.body);
+}
+
+/** A nyelvhez tartozó bemutatkozó PDF kulcsa, ha megvan a küldő gép mappájában. */
+async function languageAttachment(language: string | null): Promise<string[]> {
+  const name = LANGUAGE_ATTACHMENT[language ?? ""];
+  if (!name) return [];
+  const { files } = await availableAttachments();
+  const match =
+    files.find((file) => file.name === name && file.scope === language) ??
+    files.find((file) => file.name === name);
+  return match ? [match.key] : [];
+}
+
+/** A piszkozat a FreeLLMAPI-val — a teljes szálból, a saját stílusmintákkal. */
+async function compose(
+  doc: ThreadReply,
+): Promise<{ body: string; language: string | null; model: string }> {
+  if (!isReplyLlmReady()) {
+    throw new Error(
+      "Nincs beállítva a FreeLLMAPI: írd be az LLM_BASE_URL-t és az LLM_API_KEY-t az atlas-credentials.env-be, majd indítsd újra a szervert.",
+    );
+  }
+  const [messages, examples] = await Promise.all([
+    threadMessages(doc.threadId),
+    styleExamples(),
+  ]);
+  return generateReplyDraft({
+    company: doc.company,
+    senderName: doc.toName,
+    messages,
+    styleExamples: examples,
+  });
+}
+
+/** Egy piszkozat megírása. */
 async function writeDraft(doc: ThreadReply & { _id: ObjectId }): Promise<void> {
   const mail = (await latestIncoming([doc.threadId])).get(doc.threadId);
   if (!mail) {
@@ -469,16 +566,11 @@ async function writeDraft(doc: ThreadReply & { _id: ObjectId }): Promise<void> {
     return;
   }
   try {
-    const { data, model } = await askClaude(
-      draftPrompt({
-        company: doc.company,
-        senderName: doc.toName,
-        incoming: mail.text,
-      }),
-      { contactId: doc.contactId, company: doc.company, origin: "szalvalasz" },
-      { model: draftModel() },
-    );
-    const draft = draftFrom(data);
+    const draft = await compose(doc);
+    // Ha kijelöléskor nem választottál csatolmányt, a nyelv dönt.
+    const attachments = doc.attachments.length
+      ? doc.attachments
+      : await languageAttachment(draft.language);
     // Csak akkor írjuk be, ha közben nem mondták le és nem írták át.
     await (
       await replies()
@@ -489,12 +581,14 @@ async function writeDraft(doc: ThreadReply & { _id: ObjectId }): Promise<void> {
           status: "atnezendo",
           body: draft.body,
           language: draft.language,
-          model,
+          attachments,
+          model: draft.model,
           note: null,
           updatedAt: new Date().toISOString(),
         },
       },
     );
+    const model = draft.model;
     log.info(`piszkozat kész: ${doc.company} (${model})`);
   } catch (error) {
     await fail(
@@ -554,7 +648,11 @@ async function sendOne(doc: ThreadReply & { _id: ObjectId }): Promise<boolean> {
       subject: doc.subject,
       body: doc.body,
       inReplyTo: doc.inReplyTo,
-      kind: "időzített válasz",
+      kind: doc.priority
+        ? "soron kívüli válasz"
+        : doc.inQueue
+          ? "válasz a queue-ban"
+          : "időzített válasz",
       files,
     });
     const at = new Date().toISOString();
@@ -596,7 +694,13 @@ const flags = globalThis as typeof globalThis & {
   __melodiaReplyTimer?: ReturnType<typeof setInterval>;
   __melodiaReplyTicking?: boolean;
   __melodiaReplyDrafting?: boolean;
+  __melodiaPriorityTimer?: ReturnType<typeof setInterval>;
+  __melodiaPriorityTicking?: boolean;
+  __melodiaLaneTicking?: boolean;
+  /** Fiókonként mikor mehet a következő queue-s válasz (epoch ms). */
+  __melodiaLaneNext?: Map<string, number>;
 };
+const laneNext = (flags.__melodiaLaneNext ??= new Map<string, number>());
 
 /**
  * Egy kör: előbb a hiányzó piszkozatok, aztán fiókonként legfeljebb egy
@@ -604,22 +708,27 @@ const flags = globalThis as typeof globalThis & {
  */
 /**
  * A hiányzó piszkozatok megírása. Ehhez nem kell küldőnek lenni — csak a helyi
- * Claude CLI kell, így bármelyik saját gépen lefut (a telepített példányon
+ * FreeLLMAPI kell, így bármelyik saját gépen lefut (a telepített példányon
  * nem). Levél ettől nem megy ki: az a jóváhagyás és a küldő gép dolga.
  */
 export async function draftPending(): Promise<number> {
   if (process.env.VERCEL || flags.__melodiaReplyDrafting) return 0;
   flags.__melodiaReplyDrafting = true;
   try {
-    const pending = await (
-      await replies()
-    )
-      .find({ status: "generalas" })
-      .sort({ createdAt: 1 })
-      .limit(DRAFTS_PER_TICK)
-      .toArray();
-    for (const doc of pending) await writeDraft(doc);
-    return pending.length;
+    const collection = await replies();
+    // Kettesével, amíg van függő — a modal ne várjon két percet.
+    let done = 0;
+    while (done < LLM_DRAFTS_PER_RUN) {
+      const batch = await collection
+        .find({ status: "generalas" })
+        .sort({ createdAt: 1 })
+        .limit(LLM_CONCURRENCY)
+        .toArray();
+      if (!batch.length) break;
+      await Promise.all(batch.map(writeDraft));
+      done += batch.length;
+    }
+    return done;
   } finally {
     flags.__melodiaReplyDrafting = false;
   }
@@ -634,7 +743,11 @@ export async function tickThreadReplies(now = new Date()): Promise<ReplyTick> {
     const approved = await (
       await replies()
     )
-      .find({ status: "jovahagyva" })
+      .find({
+        status: "jovahagyva",
+        priority: { $ne: true },
+        inQueue: { $ne: true },
+      })
       .sort({ approvedAt: 1 })
       .toArray();
     if (!approved.length) return result;
@@ -713,10 +826,138 @@ export async function tickThreadReplies(now = new Date()): Promise<ReplyTick> {
   }
 }
 
+/**
+ * A fiók legrégebben jóváhagyott queue-s válasza, ha a címzettnél munkaidő
+ * van. Egy hívás legfeljebb egyet küld. Visszaadja a cég nevét, ha kiment.
+ */
+export async function sendQueuedReply(
+  accountId: string,
+  now = new Date(),
+): Promise<string | null> {
+  const docs = await (
+    await replies()
+  )
+    .find({
+      status: "jovahagyva",
+      inQueue: true,
+      accountId,
+      queueDay: { $not: { $gt: dayKey(now) } },
+    })
+    .sort({ approvedAt: 1 })
+    .limit(20)
+    .toArray();
+  for (const doc of docs) {
+    const contact = doc.contactId
+      ? await getContactById(doc.contactId).catch(() => null)
+      : null;
+    if (
+      !insideWindowAt(
+        now,
+        timeZoneFor(contact?.country),
+        QUEUE_WINDOW_FROM,
+        QUEUE_WINDOW_TO,
+      )
+    ) {
+      continue;
+    }
+    return (await sendOne(doc)) ? doc.company : null;
+  }
+  return null;
+}
+
+/** Szünet két queue-s válasz közt: a fiók cold queue-jának perc-tartománya. */
+function laneGap(accountId: string): number {
+  const state = campaignState(accountId);
+  const min = (state?.minMinutes ?? 10) * 60_000;
+  const max = Math.max(min, (state?.maxMinutes ?? 20) * 60_000);
+  return Math.round(min + Math.random() * (max - min));
+}
+
+/**
+ * A válasz-queue: fiókonként külön sáv, a cold queue mellett, a saját
+ * ütemében. Ha lejárt a szünet, megy a következő; utána új véletlen szünet a
+ * cold queue perc-tartományából. A napi keretbe nem számít. Csak a küldő gépen.
+ */
+export async function tickReplyQueue(now = new Date()): Promise<number> {
+  if (!isSender() || flags.__melodiaLaneTicking) return 0;
+  flags.__melodiaLaneTicking = true;
+  try {
+    const accountIds = (await (
+      await replies()
+    ).distinct("accountId", {
+      status: "jovahagyva",
+      inQueue: true,
+      queueDay: { $not: { $gt: dayKey(now) } },
+    })) as string[];
+    const due = accountIds.filter(
+      (id) => (laneNext.get(id) ?? 0) <= now.getTime(),
+    );
+    if (!due.length) return 0;
+    if (!(await claimSender(now))) return 0;
+    await ensureAccounts();
+    let sent = 0;
+    for (const accountId of due) {
+      const company = await sendQueuedReply(accountId, now);
+      if (!company) continue;
+      sent += 1;
+      const gap = laneGap(accountId);
+      laneNext.set(accountId, now.getTime() + gap);
+      log.info(
+        `válasz-queue: ${company} kiment — a fiók következő válasza ${Math.round(gap / 60_000)} perc múlva, keret nélkül`,
+      );
+    }
+    return sent;
+  } finally {
+    flags.__melodiaLaneTicking = false;
+  }
+}
+
+/**
+ * Soron kívüli válaszok: a jóváhagyottak azonnal, egymás után kimennek — a
+ * cold queue-val párhuzamosan, a napi keret, a küldési ablak és a szünet
+ * nélkül. Csak a küldő gépen.
+ */
+export async function sendPriority(now = new Date()): Promise<number> {
+  if (!isSender() || flags.__melodiaPriorityTicking) return 0;
+  flags.__melodiaPriorityTicking = true;
+  try {
+    const approved = await (
+      await replies()
+    )
+      .find({ status: "jovahagyva", priority: true })
+      .sort({ approvedAt: 1 })
+      .toArray();
+    if (!approved.length) return 0;
+    if (!(await claimSender(now))) return 0;
+    await ensureAccounts();
+    let sent = 0;
+    for (const doc of approved) {
+      if (await sendOne(doc)) sent += 1;
+    }
+    if (sent) log.info(`soron kívüli válasz kiment: ${sent}`);
+    return sent;
+  } finally {
+    flags.__melodiaPriorityTicking = false;
+  }
+}
+
 /** Az időzített válaszok köre: 2 percenként, csak a küldő gépen. */
 export function startThreadReplyRunner(): boolean {
   if (!isSender()) return false;
   if (flags.__melodiaReplyTimer) return true;
+  if (isReplyLlmReady()) {
+    void assertLlmReachable()
+      .then(() => log.info("FreeLLMAPI elérhető — a piszkozatokat az írja"))
+      .catch((error: Error) => log.warn(error.message));
+  }
+  flags.__melodiaPriorityTimer = setInterval(() => {
+    void sendPriority().catch((error: Error) =>
+      log.error("soron kívüli válaszok köre hibás", error.message),
+    );
+    void tickReplyQueue().catch((error: Error) =>
+      log.error("válasz-queue köre hibás", error.message),
+    );
+  }, PRIORITY_TICK_MS);
   const run = () =>
     void tickThreadReplies()
       .then((result) => {

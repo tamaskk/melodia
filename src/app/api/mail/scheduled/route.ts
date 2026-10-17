@@ -44,6 +44,8 @@ function strings(input: unknown): string[] {
 /**
  * `{ action: "schedule", threadIds, attachments }` — szálak felvétele
  * `{ action: "approve", ids }` — jóváhagyás: a következő szabad helyen kimegy
+ * `{ action: "queue", ids }` — a futó cold queue szüneteiben megy, a napi keretbe nem számít
+ * `{ action: "send-now", ids }` — jóváhagyás soron kívül: azonnal kimegy, a cold queue mellett
  * `{ action: "edit", id, subject?, body?, attachments? }` — átírás
  * `{ action: "regenerate", id }` — új piszkozat a szál mostani utolsó levelére
  * `{ action: "cancel", ids }` — lemondás
@@ -58,6 +60,7 @@ export async function POST(request: NextRequest) {
       subject?: unknown;
       body?: unknown;
       attachments?: unknown;
+    day?: unknown;
     };
     const id = typeof body.id === "string" ? body.id : "";
 
@@ -82,6 +85,23 @@ export async function POST(request: NextRequest) {
     if (body.action === "approve") {
       return NextResponse.json({
         approved: await approveThreadReplies(strings(body.ids)),
+      });
+    }
+    if (body.action === "queue") {
+      const day = typeof body.day === "string" ? body.day : undefined;
+      if (day && !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
+        return NextResponse.json(
+          { error: "A nap formátuma: ÉÉÉÉ-HH-NN." },
+          { status: 400 },
+        );
+      }
+      return NextResponse.json({
+        approved: await approveThreadReplies(strings(body.ids), "queue", day),
+      });
+    }
+    if (body.action === "send-now") {
+      return NextResponse.json({
+        approved: await approveThreadReplies(strings(body.ids), "soron-kivul"),
       });
     }
     if (body.action === "cancel") {

@@ -53,7 +53,20 @@ export interface MailMessage {
 }
 
 export type ThreadStatus =
-  "nincs-valasz" | "valasz-var" | "valaszoltam" | "visszapattant";
+  | "nincs-valasz"
+  | "valasz-var"
+  | "valaszoltam"
+  | "visszapattant"
+  /** Csak kézzel: jött válasz, de nem kell rá felelni. */
+  | "nem-kell-valasz";
+
+export const THREAD_STATUSES: ThreadStatus[] = [
+  "valasz-var",
+  "valaszoltam",
+  "nem-kell-valasz",
+  "nincs-valasz",
+  "visszapattant",
+];
 
 export interface MailThread {
   threadId: string;
@@ -74,6 +87,10 @@ export interface MailThread {
   /** Csak automatikus válasz jött (szabadság, robot) — nem igazi válasz. */
   autoOnly: boolean;
   status: ThreadStatus;
+  /** Az állapotot kézzel állítottad — új emberi válaszig marad. */
+  manual: boolean;
+  /** A legutóbbi emberi (nem automatikus) beérkező levél ideje. */
+  lastHumanIn: string | null;
   lastDirection: MailDirection;
   preview: string;
 }
@@ -253,10 +270,13 @@ interface ThreadRow {
 export async function listThreads(
   filters: ThreadFilters = {},
 ): Promise<{ threads: MailThread[]; stats: MailStats }> {
-  const rejected = filters.rejected ? await rejectedContactIds() : null;
+  const [rejected, marks] = await Promise.all([
+    filters.rejected ? rejectedContactIds() : null,
+    threadMarks(),
+  ]);
   const cached = cache && Date.now() - cache.at < CACHE_MS ? cache : null;
   if (cached) {
-    return applyFilters(cached.threads, filters, rejected);
+    return applyFilters(withMarks(cached.threads, marks), filters, rejected);
   }
 
   const collection = await mailCollection();
@@ -332,12 +352,70 @@ export async function listThreads(
       lastHumanIn: row.lastHumanIn,
       lastOut: row.lastOut,
     }),
+    manual: false,
+    lastHumanIn: row.lastHumanIn ?? null,
     lastDirection: row.lastDirection,
     preview: row.preview ?? "",
   }));
 
   cache = { at: Date.now(), threads };
-  return applyFilters(threads, filters, rejected);
+  return applyFilters(withMarks(threads, marks), filters, rejected);
+}
+
+interface ThreadMark {
+  _id: string;
+  status: ThreadStatus;
+  at: string;
+}
+
+async function marksCollection() {
+  return (await getDb()).collection<ThreadMark>("thread_marks");
+}
+
+/** A kézi állapotok: kevés, kicsi dokumentum — a lista minden kérésnél friss. */
+async function threadMarks(): Promise<Map<string, ThreadMark>> {
+  const rows = await (await marksCollection()).find({}).toArray();
+  return new Map(rows.map((row) => [row._id, row]));
+}
+
+/**
+ * A kézi állapot felülírja a számoltat — amíg új emberi válasz nem jön a
+ * jelölés után; akkor újra a számolt állapot látszik.
+ */
+function withMarks(
+  threads: MailThread[],
+  marks: Map<string, ThreadMark>,
+): MailThread[] {
+  if (!marks.size) return threads;
+  return threads.map((thread) => {
+    const mark = marks.get(thread.threadId);
+    if (!mark) return thread;
+    if (thread.lastHumanIn && thread.lastHumanIn > mark.at) return thread;
+    return { ...thread, status: mark.status, manual: true };
+  });
+}
+
+/** Kézi állapot szálakra; `null` visszaadja a számoltat. */
+export async function setThreadMarks(
+  threadIds: string[],
+  status: ThreadStatus | null,
+): Promise<void> {
+  if (!threadIds.length) return;
+  const collection = await marksCollection();
+  if (status === null) {
+    await collection.deleteMany({ _id: { $in: threadIds } });
+    return;
+  }
+  const at = new Date().toISOString();
+  await collection.bulkWrite(
+    threadIds.map((threadId) => ({
+      updateOne: {
+        filter: { _id: threadId },
+        update: { $set: { status, at } },
+        upsert: true,
+      },
+    })),
+  );
 }
 
 /**
@@ -350,7 +428,9 @@ function statsOf(threads: MailThread[]): MailStats {
     threads: threads.length,
     answered: threads.filter(
       (thread) =>
-        thread.status === "valaszoltam" || thread.status === "valasz-var",
+        thread.status === "valaszoltam" ||
+        thread.status === "valasz-var" ||
+        thread.status === "nem-kell-valasz",
     ).length,
     waiting: threads.filter((thread) => thread.status === "valasz-var").length,
     bounced: threads.filter((thread) => thread.status === "visszapattant")
@@ -384,7 +464,9 @@ function applyFilters(
       (thread) =>
         thread.contactId !== null &&
         rejected.has(thread.contactId) &&
-        (thread.status === "valasz-var" || thread.status === "valaszoltam"),
+        (thread.status === "valasz-var" ||
+          thread.status === "valaszoltam" ||
+          thread.status === "nem-kell-valasz"),
     );
   }
   if (filters.status) {

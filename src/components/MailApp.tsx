@@ -31,7 +31,11 @@ interface MailMessage {
 }
 
 type ThreadStatus =
-  "nincs-valasz" | "valasz-var" | "valaszoltam" | "visszapattant";
+  | "nincs-valasz"
+  | "valasz-var"
+  | "valaszoltam"
+  | "visszapattant"
+  | "nem-kell-valasz";
 
 interface MailThread {
   threadId: string;
@@ -47,6 +51,8 @@ interface MailThread {
   bounced: boolean;
   autoOnly: boolean;
   status: ThreadStatus;
+  /** Kézzel állított állapot. */
+  manual: boolean;
   lastDirection: "in" | "out";
   preview: string;
 }
@@ -94,6 +100,7 @@ const STATUS_LABELS: Record<ThreadStatus, string> = {
   valaszoltam: "válaszoltam",
   "nincs-valasz": "nincs válasz",
   visszapattant: "visszapattant",
+  "nem-kell-valasz": "nem kell válasz",
 };
 
 const STATUS_STYLE: Record<ThreadStatus, string> = {
@@ -102,12 +109,23 @@ const STATUS_STYLE: Record<ThreadStatus, string> = {
   "nincs-valasz":
     "border-[var(--border)] bg-[var(--surface-2)] text-[var(--muted)]",
   visszapattant: "border-red-500/60 bg-red-500/15 text-red-300",
+  "nem-kell-valasz": "border-slate-500/60 bg-slate-500/15 text-slate-300",
 };
+
+/** A kártya állapot-menüjének sorrendje. */
+const MARKS: ThreadStatus[] = [
+  "valasz-var",
+  "valaszoltam",
+  "nem-kell-valasz",
+  "nincs-valasz",
+  "visszapattant",
+];
 
 const FILTERS: { key: ThreadStatus | ""; label: string }[] = [
   { key: "", label: "mind" },
   { key: "valasz-var", label: "válasz jött" },
   { key: "valaszoltam", label: "válaszoltam" },
+  { key: "nem-kell-valasz", label: "nem kell válasz" },
   { key: "nincs-valasz", label: "nincs válasz" },
   { key: "visszapattant", label: "visszapattant" },
 ];
@@ -269,6 +287,10 @@ export default function MailApp({
   const [scheduling, setScheduling] = useState(false);
   const [outcome, setOutcome] = useState<ScheduleOutcome | null>(null);
   const [previewKey, setPreviewKey] = useState(0);
+  /** Melyik kártyán nyitott az állapot-menü. */
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  /** A modalban látszó szálak: amire most generáltunk választ. */
+  const [review, setReview] = useState<string[] | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -323,6 +345,13 @@ export default function MailApp({
     };
   }, [openId]);
 
+  // Megnyitáskor a szál alja látszik: a legutóbbi levél és a válaszmező.
+  const pane = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!messages.length || !pane.current) return;
+    pane.current.scrollTop = pane.current.scrollHeight;
+  }, [messages]);
+
   // Begyűjtés közben figyeljük az állapotot, aztán egyszer frissítjük a listát.
   // Az automatikus szinkron a háttérben is elindulhat — betöltéskor és
   // tabváltáskor rákérdezünk, futás közben sűrűn.
@@ -364,12 +393,31 @@ export default function MailApp({
     }
   };
 
-  /** Kijelölhető: jött rá emberi válasz, és még nincs rá időzített levél. */
-  const selectable = (thread: MailThread) =>
-    thread.incoming > 0 &&
-    !thread.autoOnly &&
-    !thread.bounced &&
-    !scheduled[thread.threadId];
+  /** Kézi állapot — azonnal látszik, a szerver a háttérben menti. */
+  const mark = async (threadIds: string[], next: ThreadStatus | null) => {
+    setMenuFor(null);
+    if (next) {
+      setThreads((current) =>
+        current.map((thread) =>
+          threadIds.includes(thread.threadId)
+            ? { ...thread, status: next, manual: true }
+            : thread,
+        ),
+      );
+    }
+    try {
+      const response = await fetch("/api/mail", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ threadIds, status: next }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Nem sikerült menteni");
+    } catch (caught) {
+      setError((caught as Error).message);
+    }
+    await load();
+  };
 
   const toggle = (threadId: string) => {
     setOutcome(null);
@@ -406,6 +454,7 @@ export default function MailApp({
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Hiba");
       setOutcome(data as ScheduleOutcome);
+      setReview(selected);
       setSelected([]);
       setPreviewKey((value) => value + 1);
       await load();
@@ -581,7 +630,9 @@ export default function MailApp({
               disabled={scheduling}
               className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-40"
             >
-              {scheduling ? "Időzítés…" : "Válasz időzítése"}
+              {scheduling
+                ? "Generálás…"
+                : `Válasz generálása (${selected.length})`}
             </button>
             <button
               type="button"
@@ -592,13 +643,45 @@ export default function MailApp({
               Kijelölés törlése
             </button>
           </div>
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <span className="text-[var(--muted)]">
+              Állapot a kijelölteknek:
+            </span>
+            {MARKS.map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => {
+                  void mark(selected, item);
+                  setSelected([]);
+                }}
+                className={`rounded-full border px-2 py-0.5 text-[11px] transition hover:brightness-125 ${STATUS_STYLE[item]}`}
+              >
+                {STATUS_LABELS[item]}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => {
+                void mark(selected, null);
+                setSelected([]);
+              }}
+              className="px-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--foreground)]"
+            >
+              ↺ automatikus
+            </button>
+          </div>
           <p className="text-xs text-[var(--muted)]">
-            Mindegyikre külön piszkozat készül; jóváhagyás után arról a fiókról
-            megy ki a szálba, amelyikre a válasz jött, a következő szabad
-            helyen. A piszkozatok időzítés után itt lent jelennek meg.
+            Válasz csak arra a szálra készül, ahová emberi válasz jött.
+            Mindegyikre személyre szabott piszkozat készül a teljes szálból; egy
+            ablakban átnézed, és és időzíted (a fiók szabad helyén), a
+            válasz-queue-ba teszed (saját ütemben, a cold queue mellett, keret
+            nélkül), vagy soron kívül azonnal küldöd. Arról a fiókról megy a szálba, amelyikre a válasz jött.
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-            <span className="text-[var(--muted)]">Csatolmány:</span>
+            <span className="text-[var(--muted)]">
+              Csatolmány (ha üres: a levél nyelve szerint a bemutatkozó PDF):
+            </span>
             {files?.length ? (
               files.map((file) => (
                 <label key={file.key} className="flex items-center gap-1.5">
@@ -638,6 +721,34 @@ export default function MailApp({
         </div>
       ) : null}
 
+      {review ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Válasz-piszkozatok"
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-auto bg-black/60 p-4"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setReview(null);
+          }}
+        >
+          <div className="relative w-full max-w-4xl rounded-2xl border border-[var(--border)] bg-[var(--background)] shadow-2xl">
+            <button
+              type="button"
+              onClick={() => setReview(null)}
+              aria-label="Bezárás"
+              className="absolute right-3 top-3 h-8 rounded-lg border border-[var(--border)] px-3 text-xs transition hover:border-blue-500"
+            >
+              Bezárás
+            </button>
+            <ScheduledReplies
+              only={review}
+              pollMs={3_000}
+              onChanged={() => void load()}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <ScheduledReplies
         embedded
         refreshKey={previewKey}
@@ -662,72 +773,134 @@ export default function MailApp({
           ) : (
             <ul className="divide-y divide-[var(--border)]">
               {threads.map((thread) => (
-                <li key={thread.threadId} className="flex items-stretch">
-                  {selectable(thread) ? (
+                <li key={thread.threadId}>
+                  <div className="flex items-stretch">
                     <label className="flex w-9 shrink-0 cursor-pointer items-center justify-center">
                       <input
                         type="checkbox"
                         checked={selected.includes(thread.threadId)}
                         onChange={() => toggle(thread.threadId)}
-                        aria-label={`${thread.company ?? thread.counterpart} kijelölése válasz időzítéséhez`}
+                        aria-label={`${thread.company ?? thread.counterpart} kijelölése`}
                       />
                     </label>
-                  ) : (
-                    <span className="w-9 shrink-0" />
-                  )}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMessages([]);
-                      setOpenId(thread.threadId);
-                    }}
-                    className={`min-w-0 flex-1 space-y-1 py-2.5 pr-3 text-left transition hover:bg-[var(--surface-2)] ${
-                      openId === thread.threadId ? "bg-[var(--surface-2)]" : ""
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate text-sm font-medium">
-                        {thread.company ?? thread.counterpart}
-                      </span>
-                      <span className="shrink-0 text-[11px] text-[var(--muted)]">
-                        {when(thread.lastAt)}
-                      </span>
-                    </div>
-                    <p className="truncate text-xs text-[var(--muted)]">
-                      {thread.subject}
-                    </p>
-                    <p className="truncate text-[11px] text-[var(--muted)]">
-                      {thread.lastDirection === "out" ? "Én: " : ""}
-                      {thread.preview}
-                    </p>
-                    <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_STYLE[thread.status]}`}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Ugyanarra újra kattintva nem ürítünk: a betöltés nem indulna újra.
+                        if (openId === thread.threadId) return;
+                        setMessages([]);
+                        setOpenId(thread.threadId);
+                      }}
+                      className={`min-w-0 flex-1 space-y-1 py-2.5 pr-3 text-left transition hover:bg-[var(--surface-2)] ${
+                        openId === thread.threadId
+                          ? "bg-[var(--surface-2)]"
+                          : ""
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="truncate text-sm font-medium">
+                          {thread.company ?? thread.counterpart}
+                        </span>
+                        <span className="shrink-0 text-[11px] text-[var(--muted)]">
+                          {when(thread.lastAt)}
+                        </span>
+                      </div>
+                      <p className="truncate text-xs text-[var(--muted)]">
+                        {thread.subject}
+                      </p>
+                      <p className="truncate text-[11px] text-[var(--muted)]">
+                        {thread.lastDirection === "out" ? "Én: " : ""}
+                        {thread.preview}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-[11px] ${STATUS_STYLE[thread.status]}`}
+                        >
+                          {STATUS_LABELS[thread.status]}
+                          {thread.manual ? " · kézi" : ""}
+                        </span>
+                        <span className="text-[11px] text-[var(--muted)]">
+                          {thread.messages} levél
+                        </span>
+                        {thread.autoOnly ? (
+                          <span className="text-[11px] text-amber-300">
+                            csak automatikus
+                          </span>
+                        ) : null}
+                        {scheduled[thread.threadId] ? (
+                          <span className="rounded-full border border-violet-500/60 bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-300">
+                            válasz: {REPLY_LABELS[scheduled[thread.threadId]]}
+                          </span>
+                        ) : null}
+                      </div>
+                    </button>
+                    <div className="flex w-10 shrink-0 items-center justify-center">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setMenuFor((current) =>
+                            current === thread.threadId
+                              ? null
+                              : thread.threadId,
+                          )
+                        }
+                        aria-label="Állapot beállítása"
+                        aria-expanded={menuFor === thread.threadId}
+                        title="Állapot beállítása"
+                        className={`h-8 w-8 rounded-lg border text-sm transition hover:border-blue-500 ${
+                          thread.manual
+                            ? "border-blue-500/60 text-blue-300"
+                            : "border-[var(--border)] text-[var(--muted)]"
+                        }`}
                       >
-                        {STATUS_LABELS[thread.status]}
-                      </span>
-                      <span className="text-[11px] text-[var(--muted)]">
-                        {thread.messages} levél
-                      </span>
-                      {thread.autoOnly ? (
-                        <span className="text-[11px] text-amber-300">
-                          csak automatikus
-                        </span>
-                      ) : null}
-                      {scheduled[thread.threadId] ? (
-                        <span className="rounded-full border border-violet-500/60 bg-violet-500/15 px-2 py-0.5 text-[11px] text-violet-300">
-                          válasz: {REPLY_LABELS[scheduled[thread.threadId]]}
-                        </span>
-                      ) : null}
+                        ⋮
+                      </button>
                     </div>
-                  </button>
+                  </div>
+                  {/* Az állapotok a kártya alatt nyílnak — a görgetett lista nem vágja le. */}
+                  {menuFor === thread.threadId ? (
+                    <div className="flex flex-wrap items-center gap-1.5 bg-[var(--surface-2)] px-3 py-2 pl-9">
+                      {MARKS.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => void mark([thread.threadId], item)}
+                          className={`rounded-full border px-2 py-0.5 text-[11px] transition hover:brightness-125 ${STATUS_STYLE[item]} ${
+                            thread.status === item ? "ring-1 ring-blue-400" : ""
+                          }`}
+                        >
+                          {STATUS_LABELS[item]}
+                        </button>
+                      ))}
+                      {thread.manual ? (
+                        <button
+                          type="button"
+                          onClick={() => void mark([thread.threadId], null)}
+                          className="px-1 text-[11px] text-[var(--muted)] transition hover:text-[var(--foreground)]"
+                        >
+                          ↺ automatikus
+                        </button>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setMenuFor(null)}
+                        aria-label="Bezárás"
+                        className="ml-auto px-1 text-xs text-[var(--muted)] transition hover:text-[var(--foreground)]"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>
           )}
         </div>
 
-        <div className="min-h-0 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
+        <div
+          ref={pane}
+          className="min-h-0 overflow-auto rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3"
+        >
           {!open ? (
             <p className="text-sm text-[var(--muted)]">
               Válassz egy szálat a bal oldali listából.
@@ -765,6 +938,7 @@ export default function MailApp({
                   Levelek betöltése…
                 </p>
               ) : null}
+
             </div>
           )}
         </div>
