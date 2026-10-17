@@ -20,6 +20,13 @@ import { credential } from "./env";
 import { createLogger } from "./logger";
 import type { ContactDoc } from "./types";
 
+/**
+ * A Resend-fiókokból kiment levelekre ide jön a válasz — ezt a Gmailt a
+ * Melodia begyűjti. Szándékosan be van égetve: se env, se fiókbeállítás nem
+ * írja felül, így egy elgépelt érték nem tudja elrontani a küldést.
+ */
+const RESEND_REPLY_TO = "kalman.tamaskrisztian@gmail.com";
+
 const log = createLogger("mailer");
 
 export type MailerConfig = MailAccount;
@@ -155,7 +162,8 @@ async function dispatchResend(
       to: [mail.to],
       subject: mail.subject,
       text: mail.text,
-      ...(config.replyTo ? { reply_to: config.replyTo } : {}),
+      // A Resend-cím nem fogad levelet: a válasz mindig ide jön, fixen.
+      reply_to: RESEND_REPLY_TO,
       ...(attachments.length ? { attachments } : {}),
       ...(mail.reference
         ? {
