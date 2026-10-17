@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
+  THREAD_STATUSES,
   dailyCounts,
   listThreads,
+  setThreadMarks,
   threadMessages,
   type ThreadStatus,
 } from "@/lib/mailStore";
@@ -56,6 +58,45 @@ export async function GET(request: NextRequest) {
       accounts: publicAccounts(),
       ready: isInboxReady(),
     });
+  } catch (error) {
+    return NextResponse.json(
+      { error: (error as Error).message },
+      { status: 500 },
+    );
+  }
+}
+
+/**
+ * Kézi állapot szálakra: `{ threadIds, status }` (vagy egy `threadId`) —
+ * `status: null` visszaadja a számoltat. Új emberi válasz után a kézi állapot
+ * magától lejár.
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = (await request.json().catch(() => ({}))) as {
+      threadId?: unknown;
+      threadIds?: unknown;
+      status?: unknown;
+    };
+    const threadIds = [
+      ...(Array.isArray(body.threadIds) ? body.threadIds : []),
+      body.threadId,
+    ].filter((id): id is string => typeof id === "string" && !!id);
+    const status =
+      body.status === null
+        ? null
+        : THREAD_STATUSES.find((item) => item === body.status);
+    if (!threadIds.length || threadIds.length > 500 || status === undefined) {
+      return NextResponse.json(
+        {
+          error:
+            "Adj meg 1–500 szálat és egy ismert állapotot (vagy null-t a visszaállításhoz).",
+        },
+        { status: 400 },
+      );
+    }
+    await setThreadMarks([...new Set(threadIds)], status);
+    return NextResponse.json({ ok: true, marked: threadIds.length });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
