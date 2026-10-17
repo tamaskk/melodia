@@ -408,6 +408,16 @@ export default function ContactTable({
                         · {contact.score} pont
                       </span>
                     ) : null}
+                    {contact.jev ? (
+                      <span
+                        className={`ml-1.5 tabular-nums ${
+                          contact.jev.lead ? "text-green-400" : ""
+                        }`}
+                        title={`Jev: ${contact.jev.question}\n${new Date(contact.jev.at).toLocaleString("hu-HU")}`}
+                      >
+                        · Jev {contact.jev.probability.toFixed(2)}
+                      </span>
+                    ) : null}
                   </div>
                 </td>
 

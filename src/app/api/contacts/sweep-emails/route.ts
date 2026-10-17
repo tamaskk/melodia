@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(stopSweep());
     }
 
-    const provider: SearchProvider = ["claude", "openai", "codex"].includes(
+    const provider: SearchProvider = ["claude", "claude-api", "openai", "codex"].includes(
       String(body.provider),
     )
       ? (body.provider as SearchProvider)

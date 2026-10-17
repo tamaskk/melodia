@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Nincs kijelölt sor." }, { status: 400 });
     }
 
-    const provider: SearchProvider = ["claude", "openai", "codex"].includes(
+    const provider: SearchProvider = ["claude", "claude-api", "openai", "codex"].includes(
       String(body.provider),
     )
       ? (body.provider as SearchProvider)

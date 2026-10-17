@@ -167,6 +167,10 @@ async function runPeopleSearch(
     const { findPeopleWithClaudeCli } = await import("./peopleFinderCli");
     return findPeopleWithClaudeCli(contact);
   }
+  if (provider === "claude-api") {
+    const { findPeopleWithClaudeApi } = await import("./peopleFinderCli");
+    return findPeopleWithClaudeApi(contact);
+  }
   if (provider === "codex") {
     const { findPeopleWithCodexCli } = await import("./peopleFinderCli");
     return findPeopleWithCodexCli(contact);
@@ -184,11 +188,13 @@ async function trackPeopleUsage(
 ): Promise<SearchUsage | null> {
   let usage: SearchUsage | null = null;
 
-  if (provider === "claude" || provider === "codex") {
+  if (provider === "claude" || provider === "codex" || provider === "claude-api") {
     const { takeLastStats } =
       provider === "claude"
         ? await import("./emailFinderClaude")
-        : await import("./emailFinderCodex");
+        : provider === "claude-api"
+          ? await import("./emailFinderClaudeApi")
+          : await import("./emailFinderCodex");
     const stats = takeLastStats();
     if (stats) usage = { provider, ...stats };
   }

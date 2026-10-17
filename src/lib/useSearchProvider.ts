@@ -2,7 +2,7 @@
 
 import { useCallback, useSyncExternalStore } from "react";
 
-export type SearchProviderChoice = "openai" | "claude" | "codex";
+export type SearchProviderChoice = "openai" | "claude" | "claude-api" | "codex";
 
 const KEY = "melodia:search-provider";
 const listeners = new Set<() => void>();
@@ -10,7 +10,9 @@ const listeners = new Set<() => void>();
 function read(): SearchProviderChoice {
   if (typeof window === "undefined") return "openai";
   const stored = window.localStorage.getItem(KEY);
-  return stored === "claude" || stored === "codex" ? stored : "openai";
+  return stored === "claude" || stored === "claude-api" || stored === "codex"
+    ? stored
+    : "openai";
 }
 
 function subscribe(listener: () => void): () => void {

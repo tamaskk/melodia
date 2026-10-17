@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import MailChart, { type DailyPoint } from "./MailChart";
 import ScheduledReplies from "./ScheduledReplies";
+import ThreadComposer from "./ThreadComposer";
 import { formatNumber } from "@/lib/format";
 import {
   STATUS_LABELS as REPLY_LABELS,
@@ -766,6 +767,8 @@ export default function MailApp({
                   Levelek betöltése…
                 </p>
               ) : null}
+
+              <ThreadComposer key={open.threadId} threadId={open.threadId} />
             </div>
           )}
         </div>

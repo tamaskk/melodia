@@ -65,6 +65,7 @@ function toSourceKey(value: string): string {
 export const PROVIDER_LABELS: Record<SearchProviderChoice, string> = {
   openai: "OpenAI API",
   claude: "helyi Claude CLI",
+  "claude-api": "Claude API",
   codex: "helyi Codex CLI",
 };
 

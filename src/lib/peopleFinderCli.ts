@@ -1,5 +1,5 @@
 /**
- * Kapcsolattartó-keresés a helyi CLI-kkel (Claude, Codex).
+ * Kapcsolattartó-keresés a helyi CLI-kkel (Claude, Codex) és a Claude API-val.
  *
  * A futtatókörnyezetet az e-mail keresés moduljai adják — ugyanaz a sor
  * (`cliQueue`), ugyanaz a memória-vészfék, ugyanaz a modell és körkorlát. Itt
@@ -7,6 +7,7 @@
  * nem tölthető le, tehát a találati oldalakból dolgozunk.
  */
 import { runClaudeSearch } from "./emailFinderClaude";
+import { runClaudeApiSearch } from "./emailFinderClaudeApi";
 import { runCodexSearch } from "./emailFinderCodex";
 import {
   buildPeoplePrompt,
@@ -30,4 +31,11 @@ export async function findPeopleWithCodexCli(
 ): Promise<PeopleFinding> {
   const parsed = await runCodexSearch(buildPeoplePrompt(contact));
   return normalisePeople(parsed ?? { people: [] }, "codex-cli");
+}
+
+export async function findPeopleWithClaudeApi(
+  contact: ContactDoc,
+): Promise<PeopleFinding> {
+  const { parsed, model } = await runClaudeApiSearch(buildPeoplePrompt(contact));
+  return normalisePeople(parsed ?? { people: [] }, model);
 }

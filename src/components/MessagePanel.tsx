@@ -157,7 +157,7 @@ export default function MessagePanel({
   /** A webes e-mail keresés a helyi Claude CLI-vel is mehet, OpenAI kulcs nélkül. */
   emailSearchEnabled?: boolean;
   /** Melyik motor keressen: OpenAI API vagy a helyi Claude CLI. */
-  provider?: "openai" | "claude" | "codex";
+  provider?: "openai" | "claude" | "claude-api" | "codex";
   mailMode: MailMode;
 }) {
   const [tab, setTab] = useState<Tab>("email");
@@ -713,7 +713,9 @@ export default function MessagePanel({
                           : `${
                               provider === "claude"
                                 ? "Helyi Claude CLI"
-                                : provider === "codex"
+                                : provider === "claude-api"
+                                  ? "Claude API"
+                                  : provider === "codex"
                                   ? "Helyi Codex CLI"
                                   : "OpenAI"
                             } + webkeresés. Csak olyan címet ad vissza, amit forrással igazolni tud.`}

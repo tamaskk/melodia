@@ -19,6 +19,7 @@ export function isAiEnabled(): boolean {
 export function isEmailSearchEnabled(): boolean {
   return (
     openAiKey().length > 0 ||
+    credential("ANTHROPIC_API_KEY").length > 0 ||
     credential("EMAIL_SEARCH_PROVIDER", "").toLowerCase() === "claude"
   );
 }
