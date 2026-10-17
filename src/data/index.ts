@@ -31,6 +31,10 @@ export const SOURCE_LABELS: Record<string, string> = {
         // Az ország neve is benne van, hogy a keresőben "lengyel"-re előjöjjön.
         `${info.flag} IT cégek · ${info.hu}`,
       ],
+      [
+        `seedtable-${code.toLowerCase()}`,
+        `${info.flag} Seedtable · ${info.hu}`,
+      ],
       // Az ismeretlen országú Clutch-cégek forrása külön kulcs, lásd lent.
       ...(code === "INT"
         ? []

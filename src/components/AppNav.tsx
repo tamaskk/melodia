@@ -26,6 +26,11 @@ const SOURCING: NavLink[] = [
   },
   { href: "/import", label: "Import", hint: "JSON / CSV import előnézettel" },
   {
+    href: "/seedimport",
+    label: "Seedtable import",
+    hint: "Cégek a Seedtable API-ból, szűrőkkel — csak ami még nincs bent",
+  },
+  {
     href: "/jev",
     label: "JEV import",
     hint: "Igen/nem döntés a Jev modellel (Vercel AI Gateway), táblázatban",

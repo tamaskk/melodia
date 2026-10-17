@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { accountOverview, getAccount, listAccounts } from "@/lib/accounts";
 import {
   addStoredAccount,
+  cleanReplyTo,
   isSecretReady,
   removeStoredAccount,
   saveAccountSettings,
@@ -82,6 +83,7 @@ export async function POST(request: NextRequest) {
  * A `dailyMax` a fiók saját napi maximuma — kikapcsolt felfuttatásnál él.
  * `warmupSteps: null` = vissza a szolgáltató alapértelmezett lépcsőire;
  * `warmupStart: null` = a felfuttatás újra az első küldéstől számít.
+ * `replyTo`: ide menjen a válasz (Reply-To); `null` = a fiók saját címére.
  */
 export async function PATCH(request: NextRequest) {
   try {
@@ -91,12 +93,14 @@ export async function PATCH(request: NextRequest) {
       dailyMax?: unknown;
       warmupSteps?: unknown;
       warmupStart?: unknown;
+      replyTo?: unknown;
     };
     const change: {
       warmup?: boolean;
       dailyMax?: number | null;
       warmupSteps?: WarmupStep[] | null;
       warmupStart?: string | null;
+      replyTo?: string | null;
     } = {};
     try {
       if (body.warmupSteps === null) change.warmupSteps = null;
@@ -106,6 +110,10 @@ export async function PATCH(request: NextRequest) {
       if (body.warmupStart === null) change.warmupStart = null;
       else if (body.warmupStart !== undefined) {
         change.warmupStart = startFrom(body.warmupStart);
+      }
+      if (body.replyTo === null || body.replyTo === "") change.replyTo = null;
+      else if (body.replyTo !== undefined) {
+        change.replyTo = cleanReplyTo(body.replyTo);
       }
     } catch (error) {
       return NextResponse.json(
@@ -129,7 +137,7 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json(
         {
           error:
-            "A body legyen { id } és legalább egy beállítás: warmup, dailyMax, warmupSteps vagy warmupStart.",
+            "A body legyen { id } és legalább egy beállítás: warmup, dailyMax, warmupSteps, warmupStart vagy replyTo.",
         },
         { status: 400 },
       );

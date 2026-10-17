@@ -141,3 +141,67 @@ elavult jelzésre nem reagál. A sikertelen első kapcsolódás sem ragad be tö
 
 **Hatókörön kívül:** a közben elszállt műveletek újrapróbálása — azok a saját
 ütemükben (queue-ellenőrzés, következő szinkron) futnak újra.
+
+## Kiegészítés — egyéni levél külön oldalon (2026-10-14)
+
+**Miért:** kontakthoz és queue-hoz nem kötött, egyszeri levél kiküldése egy
+kiválasztott küldő fiókból, a Gmail megnyitása nélkül.
+
+**Mit csinál:** új `/compose` oldal („Új levél" a felső menüben): Kitől
+(a küldő fiókok listája), Kinek (egy cím), Tárgy, Szöveg. Küldés előtt
+megerősítést kér. A `POST /api/mail/compose` a meglévő `sendFollowUpEmail`-en
+át küld, sima szövegként; ismeretlen fióknál nem esik vissza az első fiókra.
+
+**Hatókörön kívül:** csatolmány, több címzett / másolat, HTML-levél, a levél
+hozzákötése kontakthoz. A felfuttatás napi keretébe nem számít bele.
+
+## Kiegészítés — válaszcím fiókonként (2026-10-14)
+
+**Miért:** a `tamaskk.com`-nak nincs MX rekordja, a Resend-fiók címére küldött
+válaszok ezért sehova nem érkeztek meg, és a Levelezésben sem látszottak.
+
+**Mit csinál:** a Küldő fiókok oldalon minden fióknak lehet saját válaszcíme
+(`Reply-To`), a `mail_account_settings` gyűjteményben tárolva. A kimenő levél
+(Gmail és Resend is) ezt a fejlécet kapja, így a válasz a begyűjtött
+Gmail-postafiókba jön, és a meglévő Resend-szálösszekötés behozza. Üresen a
+korábbi viselkedés él (közös `GMAIL_REPLY_TO`, vagy a fiók saját címe). A
+Resend-fiók válaszcím nélkül figyelmeztetést mutat.
+
+**Hatókörön kívül:** a domain postafiókja (MX, továbbítás) — az a DNS-ben dől el.
+
+## Kiegészítés — Seedtable import (2026-10-14)
+
+**Miért:** új cégek közvetlenül a Seedtable API-ból (https://seedtable.com/developers),
+szűrőkkel, kézi JSON-készítés nélkül.
+
+**Mit csinál:** a `/seedimport` oldal (Beszerzés menü) a `/companies` végpont
+minden szűrőjét állíthatóvá teszi (hely, iparág, technológia, finanszírozási
+stádium és összeg, létszám, Seedtable-pont, jelek, rendezés), plusz a lekérendő
+cégek számát (futásonként legfeljebb 500) és a kezdő találatot; a futás után a
+„Következő N” gomb onnan folytatja, ahol az előző abbahagyta. Az „Automatikus
+import a lista végéig” gomb ezt magától csinálja: adagról adagra ment, amíg a
+lista el nem fogy (pl. egy teljes ország), haladásjelzővel. Átmeneti hibánál
+(429, 5xx, hálózat) vár és legfeljebb háromszor újrapróbálja; leállítható, és a
+kezdőpont mezőből folytatható. Rendezés nélkül a felvétel ideje szerint
+növekvő sorrendet állít be, hogy a hosszú futás alatt ne tolódjon el a lista.
+A futás a böngészőben él — az oldalnak nyitva kell maradnia. A „Minden ország
+importja” gomb ugyanezt sorban végigcsinálja a Seedtable összes piacán
+(`src/lib/seedtableMarkets.ts`, a központ országa szerint); a többi beállított
+szűrő minden országra érvényes. Hol tart (ország + találat), azt a böngésző
+megjegyzi, így leállítás vagy bezárás után ugyanazokkal a szűrőkkel onnan
+folytatható, vagy elölről kezdhető. Az **előnézet** lekéri és egyezteti a cégeket a
+meglévő listával (kulcs, domain, cégnév + ország — ugyanaz a szabály, mint a
+kötegelt betöltőnél, `src/lib/importDedupe.ts`), de nem ment. A **mentés** csak
+az újakat írja be, `seedtable-<országkód>` forrással; a létszámból a `size`
+sáv lesz, a cég teljes Seedtable-adatlapja (pontos létszám, stádium, bevont tőke,
+utolsó kör, alapítás éve, pont, jelek, leírás, Seedtable-link) a `seedtable`
+mezőbe kerül, a stádium és a tőkesáv címkeként is (`stadium-series_a`,
+`toke-10-50m`), hogy a Kontaktok szűrőjében kereshető legyen;
+kérésre cégenként egy döntéshozót is keres (`/people`) ellenőrzött vagy elég
+biztos e-mail címmel — a visszapattantként jelzett címet soha nem veszi át.
+
+**Kulcs:** `SEEDTABLE_API_KEY` az `atlas-credentials.env`-ben (Vercelen
+környezeti változóként).
+
+**Hatókörön kívül:** meglévő sorok frissítése Seedtable-adattal, befektetők,
+események és a vevő–szállító gráf importja, ütemezett (automatikus) futás.

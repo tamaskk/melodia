@@ -26,6 +26,7 @@ import { getDb } from "./mongodb";
 import { warmupStatus, type WarmupStatus, type WarmupStep } from "./warmup";
 import {
   accountDailyMax,
+  accountReplyTo,
   accountWarmup,
   listStoredAccounts,
   loadStoredAccounts,
@@ -90,6 +91,7 @@ function read(suffix: string): MailAccount | null {
       credential("GMAIL_FROM_NAME") ||
       credential("GMAIL_FROM_NAME_1", PROFILE.name),
     replyTo:
+      accountReplyTo(user) ||
       credential(`GMAIL_REPLY_TO${suffix}`) ||
       credential("GMAIL_REPLY_TO") ||
       null,
@@ -136,7 +138,8 @@ export function listAccounts(): MailAccount[] {
         stored.fromName ||
         credential("GMAIL_FROM_NAME") ||
         credential("GMAIL_FROM_NAME_1", PROFILE.name),
-      replyTo: credential("GMAIL_REPLY_TO") || null,
+      replyTo:
+        accountReplyTo(stored.user) || credential("GMAIL_REPLY_TO") || null,
       label: stored.label,
     });
   }
@@ -172,6 +175,8 @@ export interface AccountOverview {
   user: string;
   label: string;
   fromName: string;
+  /** Ide megy a válasz (Reply-To); `null` = a fiók saját címére. */
+  replyTo: string | null;
   /** Törölhető a felületről; az env-ből jövő fiók nem. */
   stored: boolean;
   warmup: boolean;
@@ -202,6 +207,7 @@ export async function accountOverview(): Promise<AccountOverview[]> {
     user: account.user,
     label: account.label,
     fromName: account.fromName,
+    replyTo: account.replyTo,
     stored: account.stored,
     warmup: account.warmup,
     dailyMax: account.dailyMax,
@@ -222,6 +228,7 @@ export async function accountOverview(): Promise<AccountOverview[]> {
       user: account.user,
       label: account.label,
       fromName: account.fromName ?? "",
+      replyTo: null,
       stored: true,
       warmup: true,
       dailyMax: null,
