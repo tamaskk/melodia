@@ -7,6 +7,7 @@
  * generálja, a méretet sávra kerekíti. Ami már bent van (kulcs, domain vagy
  * cégnév + ország alapján), azt nem írja felül — csak jelzi.
  */
+import { companyIndexKeys } from "./companyMatch";
 import { rescore, upsertContacts } from "./contacts";
 import { buildCompanyLetter, toSizeBucket } from "./csvImport";
 import { toCountryCode } from "./countries";
@@ -161,40 +162,42 @@ export async function ingestCompanies(
     return { index, contact: outcome.contacts[0] ?? null };
   });
 
-  // Kötegen belüli ismétlődés: ugyanaz a kulcs vagy domain kétszer.
-  const seen = new Set<string>();
-  const candidates = parsed.flatMap(({ index, contact }) => {
-    if (!contact) return [];
-    const marks = [contact.key, contactDomain(contact)].filter(
-      Boolean,
-    ) as string[];
-    if (marks.some((mark) => seen.has(mark))) {
-      result.skipped.push({
-        index,
-        company: contact.company,
-        reason: "ismétlődik ebben a kérésben",
-      });
-      return [];
-    }
-    marks.forEach((mark) => seen.add(mark));
-    return [{ index, contact }];
-  });
-
-  const { fresh, known } = await splitKnown(
-    candidates.map((item) => item.contact),
+  // Előbb az adatbázissal vetjük össze (egy lekérdezés az egész kötegre), így
+  // ami már bent van, az ezt az indokot kapja, akkor is, ha a kérésben kétszer szerepel.
+  const valid = parsed.flatMap(({ index, contact }) =>
+    contact ? [{ index, contact }] : [],
   );
-  const indexOf = new Map(
-    candidates.map((item) => [item.contact.key, item.index]),
-  );
-  for (const match of known) {
+  const indexOf = new Map(valid.map((item) => [item.contact, item.index]));
+  const known = await splitKnown(valid.map((item) => item.contact));
+  for (const match of known.known) {
     result.skipped.push({
-      index: indexOf.get(match.contact.key) ?? -1,
+      index: indexOf.get(match.contact) ?? -1,
       company: match.contact.company,
       reason: `már bent van (${match.reason}: ${match.existing})`,
     });
   }
+
+  // Aztán a kérésen belüli ismétlődés: ugyanaz a kulcs, domain vagy cégnév + ország.
+  const seen = new Set<string>();
+  const fresh = known.fresh.filter((contact) => {
+    const marks = [
+      contact.key,
+      contactDomain(contact),
+      ...companyIndexKeys(contact.country, contact.company),
+    ].filter(Boolean) as string[];
+    if (marks.some((mark) => seen.has(mark))) {
+      result.skipped.push({
+        index: indexOf.get(contact) ?? -1,
+        company: contact.company,
+        reason: "ismétlődik ebben a kérésben",
+      });
+      return false;
+    }
+    marks.forEach((mark) => seen.add(mark));
+    return true;
+  });
   result.created = fresh.map((contact) => ({
-    index: indexOf.get(contact.key) ?? -1,
+    index: indexOf.get(contact) ?? -1,
     company: contact.company,
     key: contact.key,
   }));
