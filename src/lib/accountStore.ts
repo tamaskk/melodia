@@ -75,6 +75,8 @@ const shared = globalThis as typeof globalThis & {
     noWarmup: Map<string, number | null>;
     /** Fiók → saját lépcsősor és kézzel állított kezdés (ami nincs, az alapértelmezés). */
     warmups: Map<string, AccountWarmup>;
+    /** Fiók → saját válaszcím (Reply-To). */
+    replyTos: Map<string, string>;
     at: number;
   };
 };
@@ -194,6 +196,9 @@ export async function loadStoredAccounts(force = false): Promise<void> {
           },
         ]),
       ),
+      replyTos: new Map(
+        all.flatMap((doc) => (doc.replyTo ? [[doc.user, doc.replyTo]] : [])),
+      ),
       at: Date.now(),
     };
   } catch (error) {
@@ -216,6 +221,11 @@ interface SettingsDoc {
   dailyMax?: number | null;
   warmupSteps?: WarmupStep[] | null;
   warmupStart?: string | null;
+  /**
+   * Ide jöjjön a válasz (Reply-To). A Resend-fiók címére nem érkezik levél —
+   * a válaszcím egy begyűjtött Gmail-postafiók, így a válasz a Levelezésben látszik.
+   */
+  replyTo?: string | null;
 }
 
 /**
@@ -239,6 +249,20 @@ export function accountDailyMax(user: string): number | null {
   return shared.__melodiaStoredAccounts?.noWarmup.get(user) ?? null;
 }
 
+/** A fiók saját válaszcíme; `null` = nincs, a közös beállítás él. */
+export function accountReplyTo(user: string): string | null {
+  return shared.__melodiaStoredAccounts?.replyTos.get(user) ?? null;
+}
+
+/** Érvényes, kisbetűs e-mail cím, vagy hiba emberi mondattal. */
+export function cleanReplyTo(value: unknown): string {
+  const address = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (!EMAIL_RX.test(address)) {
+    throw new Error("A válaszcím egy érvényes e-mail cím legyen.");
+  }
+  return address;
+}
+
 /** A fiók saját lépcsősora és kézzel állított kezdése. */
 export function accountWarmup(user: string): AccountWarmup {
   return (
@@ -257,6 +281,7 @@ export async function saveAccountSettings(
     dailyMax?: number | null;
     warmupSteps?: WarmupStep[] | null;
     warmupStart?: string | null;
+    replyTo?: string | null;
   },
 ): Promise<void> {
   await (

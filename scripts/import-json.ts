@@ -13,58 +13,12 @@
  * cég kerül be. Újrafuttatható: a már beírt sorokat kihagyja.
  */
 import { readFileSync } from "node:fs";
-import { companyAliases, companyIndexKeys } from "../src/lib/companyMatch";
 import { rescore, upsertContacts } from "../src/lib/contacts";
 import { parseImport } from "../src/lib/importSchema";
-import { clientPromise, getContacts } from "../src/lib/mongodb";
-import { contactDomain } from "../src/lib/recipients";
-import type { Contact } from "../src/lib/types";
+import { splitKnown } from "../src/lib/importDedupe";
+import { clientPromise } from "../src/lib/mongodb";
 
 const BATCH = 500;
-
-/** A kötegből azok, amik még nincsenek az adatbázisban. */
-async function onlyNew(batch: Contact[]): Promise<Contact[]> {
-  const collection = await getContacts();
-  const domainOf = new Map(
-    batch.map((contact) => [contact.key, contactDomain(contact)]),
-  );
-  const known = await collection
-    .find(
-      {
-        $or: [
-          { key: { $in: batch.map((contact) => contact.key) } },
-          {
-            aliases: {
-              $in: batch.flatMap((contact) => companyAliases(contact.company)),
-            },
-          },
-          {
-            domain: {
-              $in: [...new Set([...domainOf.values()].filter(Boolean))],
-            },
-          },
-        ],
-      } as never,
-      { projection: { key: 1, company: 1, country: 1, domain: 1 } },
-    )
-    .toArray();
-
-  const keys = new Set(known.map((doc) => doc.key));
-  const domains = new Set(known.map((doc) => doc.domain).filter(Boolean));
-  const names = new Set(
-    known.flatMap((doc) => companyIndexKeys(doc.country, doc.company)),
-  );
-  return batch.filter((contact) => {
-    const domain = domainOf.get(contact.key);
-    return (
-      !keys.has(contact.key) &&
-      !(domain && domains.has(domain)) &&
-      !companyIndexKeys(contact.country, contact.company).some((alias) =>
-        names.has(alias),
-      )
-    );
-  });
-}
 
 async function main() {
   const file = process.argv[2];
@@ -90,7 +44,7 @@ async function main() {
   let skipped = 0;
   for (let from = 0; from < contacts.length; from += BATCH) {
     const batch = contacts.slice(from, from + BATCH);
-    const fresh = await onlyNew(batch);
+    const { fresh } = await splitKnown(batch);
     skipped += batch.length - fresh.length;
     if (apply && fresh.length) {
       inserted += (await upsertContacts(fresh, { origin: "import" })).inserted;

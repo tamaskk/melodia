@@ -382,6 +382,17 @@ export default function AccountsPanel() {
     );
   };
 
+  /** Üres mező = nincs válaszcím, a válasz a fiók saját címére megy. */
+  const saveReplyTo = (account: AccountOverview, raw: string) => {
+    const replyTo = raw.trim().toLowerCase() || null;
+    if (replyTo === account.replyTo) return;
+    void saveSetting(
+      account,
+      { replyTo },
+      replyTo ? `a válaszok ide mennek: ${replyTo}.` : "válaszcím törölve.",
+    );
+  };
+
   const accounts = feed?.accounts ?? [];
   // Amíg nem tudjuk, mi van beállítva, nem riasztunk.
   const blocked =
@@ -441,7 +452,7 @@ export default function AccountsPanel() {
             <tr className="border-b border-[var(--border)]">
               <th className="px-3 py-2 font-medium">Címke</th>
               <th className="px-3 py-2 font-medium">Cím</th>
-              <th className="px-3 py-2 font-medium">Feladónév</th>
+              <th className="px-3 py-2 font-medium">Feladónév · válaszcím</th>
               <th className="px-3 py-2 font-medium">Típus</th>
               <th className="px-3 py-2 font-medium">Felfuttatás</th>
               <th className="px-3 py-2" />
@@ -467,6 +478,38 @@ export default function AccountsPanel() {
                   </td>
                   <td className="px-3 py-2 max-sm:block max-sm:p-0 max-sm:text-xs max-sm:text-[var(--muted)]">
                     {account.fromName || "—"}
+                    {account.usable ? (
+                      <input
+                        // A mentett érték változásakor a mező is frissüljön.
+                        key={account.replyTo ?? "nincs"}
+                        type="email"
+                        defaultValue={account.replyTo ?? ""}
+                        placeholder="válasz ide: (a saját címére)"
+                        title={
+                          account.provider === "resend"
+                            ? "A Resend-cím nem fogad levelet: adj meg egy Gmail-címet, amit a Melodia begyűjt, különben a válaszok elvesznek."
+                            : "Ha üres, a válasz erre a fiókra jön."
+                        }
+                        disabled={busy}
+                        onBlur={(event) =>
+                          saveReplyTo(account, event.target.value)
+                        }
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") event.currentTarget.blur();
+                        }}
+                        className={`mt-1 block h-7 w-full min-w-[200px] rounded-lg border bg-[var(--surface-2)] px-2 text-xs text-foreground outline-none focus:border-blue-500 ${
+                          account.provider === "resend" && !account.replyTo
+                            ? "border-amber-500/60"
+                            : "border-[var(--border)]"
+                        }`}
+                      />
+                    ) : null}
+                    {account.provider === "resend" && !account.replyTo ? (
+                      <span className="mt-1 block text-[11px] text-amber-300">
+                        Erre a címre nem érkezik levél — válaszcím nélkül a
+                        válaszok elvesznek.
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-3 py-2 text-xs text-[var(--muted)] max-sm:block max-sm:p-0">
                     {account.provider === "resend" ? "Resend" : "Gmail"}

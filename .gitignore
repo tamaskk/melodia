@@ -54,3 +54,10 @@ attachments/*
 
 # nagy importfájlok (több száz MB) — helyben maradnak
 /json/
+
+# graphify: gépfüggő gyorsítótár és a telepítő biztonsági mentése
+graphify-out/cache/
+.claude/settings.json.graphify-bak
+graphify-out/20*/
+graphify-out/.graphify_labels.pending.json
+graphify-out/.graphify_labels.json.sig
