@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import MailChart, { type DailyPoint } from "./MailChart";
 import ScheduledReplies from "./ScheduledReplies";
+import ThreadComposer from "./ThreadComposer";
 import { formatNumber } from "@/lib/format";
 import {
   STATUS_LABELS as REPLY_LABELS,
@@ -676,7 +677,8 @@ export default function MailApp({
             Mindegyikre személyre szabott piszkozat készül a teljes szálból; egy
             ablakban átnézed, és és időzíted (a fiók szabad helyén), a
             válasz-queue-ba teszed (saját ütemben, a cold queue mellett, keret
-            nélkül), vagy soron kívül azonnal küldöd. Arról a fiókról megy a szálba, amelyikre a válasz jött.
+            nélkül), vagy soron kívül azonnal küldöd. Arról a fiókról megy a
+            szálba, amelyikre a válasz jött.
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <span className="text-[var(--muted)]">
@@ -820,6 +822,7 @@ export default function MailApp({
                           {thread.manual ? " · kézi" : ""}
                         </span>
                         <span className="text-[11px] text-[var(--muted)]">
+                          {day && !rejectedOnly ? "aznap " : ""}
                           {thread.messages} levél
                         </span>
                         {thread.autoOnly ? (
@@ -939,6 +942,7 @@ export default function MailApp({
                 </p>
               ) : null}
 
+              <ThreadComposer key={open.threadId} threadId={open.threadId} />
             </div>
           )}
         </div>

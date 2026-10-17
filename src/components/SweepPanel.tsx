@@ -242,6 +242,7 @@ export default function SweepPanel({
               [
                 ["openai", "OpenAI"],
                 ["claude", "Claude"],
+                ["claude-api", "Claude API"],
                 ["codex", "Codex"],
               ] as [SearchProviderChoice, string][]
             ).map(([value, name]) => (

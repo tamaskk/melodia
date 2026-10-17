@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
+import { COUNTRY_LABELS, sourceLabel } from "@/data";
 import { copyToClipboard } from "@/lib/clipboard";
 import { companyLink, composeLink, type MailMode } from "@/lib/mailto";
 import { KINDS, KIND_LABELS } from "@/lib/importSchema";
@@ -157,7 +157,7 @@ export default function MessagePanel({
   /** A webes e-mail keresés a helyi Claude CLI-vel is mehet, OpenAI kulcs nélkül. */
   emailSearchEnabled?: boolean;
   /** Melyik motor keressen: OpenAI API vagy a helyi Claude CLI. */
-  provider?: "openai" | "claude" | "codex";
+  provider?: "openai" | "claude" | "claude-api" | "codex";
   mailMode: MailMode;
 }) {
   const [tab, setTab] = useState<Tab>("email");
@@ -512,7 +512,7 @@ export default function MessagePanel({
                 </a>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-[var(--muted)]">
                   <span className="rounded-full border border-[var(--border)] px-2 py-0.5">
-                    {SOURCE_LABELS[contact.source] ?? contact.source}
+                    {sourceLabel(contact.source)}
                   </span>
                   <span className="rounded-full border border-[var(--border)] px-2 py-0.5">
                     {KIND_LABELS[draft.kind as keyof typeof KIND_LABELS] ??
@@ -713,7 +713,9 @@ export default function MessagePanel({
                           : `${
                               provider === "claude"
                                 ? "Helyi Claude CLI"
-                                : provider === "codex"
+                                : provider === "claude-api"
+                                  ? "Claude API"
+                                  : provider === "codex"
                                   ? "Helyi Codex CLI"
                                   : "OpenAI"
                             } + webkeresés. Csak olyan címet ad vissza, amit forrással igazolni tud.`}

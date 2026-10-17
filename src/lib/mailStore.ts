@@ -78,8 +78,6 @@ export interface MailThread {
   account: string | null;
   firstAt: string;
   lastAt: string;
-  /** Mely napokon volt levél a szálban (ÉÉÉÉ-HH-NN) — a napra szűréshez. */
-  days: string[];
   messages: number;
   incoming: number;
   outgoing: number;
@@ -194,7 +192,10 @@ export interface ThreadFilters {
   rejected?: boolean;
   /** Csak ennek a saját fióknak a szálai (a fiók címe). */
   account?: string;
-  /** Csak azok a szálak, ahol ezen a napon (ÉÉÉÉ-HH-NN) ment vagy jött levél. */
+  /**
+   * Csak ennek a napnak (ÉÉÉÉ-HH-NN) a levelei: a szál sora az aznapi utolsó
+   * levelet és az aznapi darabszámot mutatja, nem a szál egészét.
+   */
   day?: string;
   limit?: number;
 }
@@ -244,7 +245,6 @@ interface ThreadRow {
   subject: string;
   firstAt: string;
   lastAt: string;
-  days: string[];
   messages: number;
   incoming: number;
   outgoing: number;
@@ -270,13 +270,19 @@ interface ThreadRow {
 export async function listThreads(
   filters: ThreadFilters = {},
 ): Promise<{ threads: MailThread[]; stats: MailStats }> {
-  const [rejected, marks] = await Promise.all([
+  const [rejected, marks, dayRows] = await Promise.all([
     filters.rejected ? rejectedContactIds() : null,
     threadMarks(),
+    filters.day ? dayActivity(filters.day) : null,
   ]);
   const cached = cache && Date.now() - cache.at < CACHE_MS ? cache : null;
   if (cached) {
-    return applyFilters(withMarks(cached.threads, marks), filters, rejected);
+    return applyFilters(
+      withMarks(cached.threads, marks),
+      filters,
+      rejected,
+      dayRows,
+    );
   }
 
   const collection = await mailCollection();
@@ -295,8 +301,6 @@ export async function listThreads(
           subject: { $first: "$subject" },
           firstAt: { $first: "$date" },
           lastAt: { $last: "$date" },
-          // Ugyanaz a napvágás, mint a diagramnál: az ISO szöveg első tíz karaktere.
-          days: { $addToSet: { $substrCP: ["$date", 0, 10] } },
           messages: { $sum: 1 },
           incoming: { $sum: { $cond: [isIn, 1, 0] } },
           outgoing: { $sum: { $cond: [isIn, 0, 1] } },
@@ -340,7 +344,6 @@ export async function listThreads(
     account: row.account ?? primary,
     firstAt: row.firstAt,
     lastAt: row.lastAt,
-    days: row.days,
     messages: row.messages,
     incoming: row.incoming,
     outgoing: row.outgoing,
@@ -359,7 +362,7 @@ export async function listThreads(
   }));
 
   cache = { at: Date.now(), threads };
-  return applyFilters(withMarks(threads, marks), filters, rejected);
+  return applyFilters(withMarks(threads, marks), filters, rejected, dayRows);
 }
 
 interface ThreadMark {
@@ -418,6 +421,45 @@ export async function setThreadMarks(
   );
 }
 
+/** Egy szál aznapi levelei összesítve — ez írja felül a sorát napra szűrésnél. */
+type DayRow = Pick<
+  MailThread,
+  "lastAt" | "messages" | "incoming" | "outgoing" | "lastDirection" | "preview"
+>;
+
+/**
+ * Egy nap levelei szálanként. Ugyanaz a napvágás, mint a diagramnál: a tárolt
+ * ISO dátum első tíz karaktere.
+ */
+async function dayActivity(day: string): Promise<Map<string, DayRow>> {
+  const collection = await mailCollection();
+  const isIn = { $eq: ["$direction", "in"] };
+  const rows = (await collection
+    .aggregate([
+      // A dátum szöveg: a nap minden időpontja a `nap` és a `napU` közé esik.
+      { $match: { date: { $gte: day, $lt: `${day}U` } } },
+      { $sort: { date: 1 } },
+      {
+        $group: {
+          _id: "$threadId",
+          lastAt: { $last: "$date" },
+          messages: { $sum: 1 },
+          incoming: { $sum: { $cond: [isIn, 1, 0] } },
+          outgoing: { $sum: { $cond: [isIn, 0, 1] } },
+          lastDirection: { $last: "$direction" },
+          preview: { $last: "$snippet" },
+        },
+      },
+    ])
+    .toArray()) as unknown as (DayRow & { _id: string })[];
+  return new Map(
+    rows.map(({ _id, ...row }) => [
+      _id,
+      { ...row, preview: row.preview ?? "" },
+    ]),
+  );
+}
+
 /**
  * A számok a fiókra és napra szűrt teljes halmazra vonatkoznak, nem az
  * állapotra vagy keresésre szűrt listára — így látszik az összes megkeresés
@@ -449,14 +491,18 @@ function applyFilters(
   all: MailThread[],
   filters: ThreadFilters,
   rejected: Set<string> | null,
+  dayRows: Map<string, DayRow> | null,
 ): { threads: MailThread[]; stats: MailStats } {
   const account = filters.account?.trim().toLowerCase();
-  const day = filters.day;
-  const threads = all.filter(
-    (thread) =>
-      (!account || thread.account === account) &&
-      (!day || thread.days.includes(day)),
-  );
+  let threads = account
+    ? all.filter((thread) => thread.account === account)
+    : all;
+  if (dayRows) {
+    threads = threads
+      .filter((thread) => dayRows.has(thread.threadId))
+      .map((thread) => ({ ...thread, ...dayRows.get(thread.threadId) }))
+      .sort((a, b) => b.lastAt.localeCompare(a.lastAt));
+  }
   const stats = statsOf(threads);
   let rows = threads;
   if (rejected) {

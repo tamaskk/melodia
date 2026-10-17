@@ -26,6 +26,11 @@ const SOURCING: NavLink[] = [
   },
   { href: "/import", label: "Import", hint: "JSON / CSV import előnézettel" },
   {
+    href: "/jev",
+    label: "JEV import",
+    hint: "Igen/nem döntés a Jev modellel (Vercel AI Gateway), táblázatban",
+  },
+  {
     href: "/convert",
     label: "Hunter CSV",
     hint: "Hunter-export átalakítása lead-sorokká",
@@ -68,6 +73,7 @@ const SYSTEM: NavLink[] = [
 const PROVIDERS: [SearchProviderChoice, string][] = [
   ["openai", "OpenAI"],
   ["claude", "Claude"],
+  ["claude-api", "Claude API"],
   ["codex", "Codex"],
 ];
 
@@ -209,6 +215,9 @@ export default function AppNav() {
         </Link>
         <Link href="/mail" className={linkClass(isActive("/mail"))}>
           Levelezés
+        </Link>
+        <Link href="/compose" className={linkClass(isActive("/compose"))}>
+          Új levél
         </Link>
         <Link href="/rejected" className={linkClass(isActive("/rejected"))}>
           Elutasítások

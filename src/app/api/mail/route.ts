@@ -14,7 +14,7 @@ import { threadReplyStatuses } from "@/lib/threadReplies";
 export const dynamic = "force-dynamic";
 
 /**
- * Szálak listája (`?status=valasz-var&q=nova`), egyetlen nap szálai
+ * Szálak listája (`?status=valasz-var&q=nova`), egyetlen nap levelei
  * (`?day=2026-10-10`), csak az elutasítások (`?rejected=1`), vagy egy szál
  * teljes levelezése (`?threadId=...`).
  */

@@ -44,7 +44,13 @@ export function buildQuery(filters: ContactFilters): Filter<Contact> {
       and.push({ [field]: value } as Filter<Contact>);
   };
 
-  eq("source", filters.source);
+  // Több forrás vesszővel elválasztva jön a szűrőből: "a,b,c".
+  const sources = (filters.source ?? "")
+    .split(",")
+    .map((source) => source.trim())
+    .filter((source) => source && source !== "all");
+  if (sources.length === 1) and.push({ source: sources[0] });
+  if (sources.length > 1) and.push({ source: { $in: sources } });
   eq("kind", filters.kind);
   eq("channel", filters.channel);
   eq("country", filters.country);
@@ -198,6 +204,14 @@ export function buildQuery(filters: ContactFilters): Filter<Contact> {
   bool("sent", filters.sent);
   bool("done", filters.done);
   bool("starred", filters.starred);
+
+  if (filters.jevMin === "any") and.push({ "jev.probability": { $ne: null } } as Filter<Contact>);
+  else if (filters.jevMin === "none") and.push({ "jev.probability": null } as Filter<Contact>);
+  else if (filters.jevMin) {
+    const min = Number(filters.jevMin);
+    if (Number.isFinite(min))
+      and.push({ "jev.probability": { $gte: min } } as Filter<Contact>);
+  }
 
   // Queue-tagság. A `$type` alak a részleges indexet használja; a `null` a
   // hiányzó mezőre is illeszkedik.
@@ -742,10 +756,14 @@ export async function upsertContacts(
   const now = new Date().toISOString();
 
   // Hand-edited fields must survive a re-import, so look up what to skip.
+  // Csak az érintett kulcsokra — darabolt importnál ez kérésenként fut le.
   const edited = new Map<string, Set<string>>();
   const existing = await collection
     .find(
-      { manualFields: { $exists: true, $ne: [] } },
+      {
+        key: { $in: contacts.map((contact) => contact.key) },
+        manualFields: { $exists: true, $ne: [] },
+      },
       { projection: { key: 1, manualFields: 1 } },
     )
     .toArray();

@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     if (body.action === "stop") return NextResponse.json(stopPeopleSweep());
 
-    const provider = (["openai", "claude", "codex"] as const).includes(
+    const provider = (["openai", "claude", "claude-api", "codex"] as const).includes(
       body.provider as SearchProvider,
     )
       ? (body.provider as SearchProvider)

@@ -30,6 +30,40 @@ export type Channel = "email" | "linkedin" | "both";
 
 export type Language = "en" | "hu";
 
+/** A Seedtable-importból jött cég teljes adatlapja, ahogy a Seedtable adta. */
+export interface SeedtableInfo {
+  id: string;
+  slug: string;
+  /** A cég oldala a Seedtable-ön. */
+  url: string;
+  description: string | null;
+  industry: string | null;
+  /** A pontos létszám — a `size` ebből számolt sáv. */
+  employeeCount: number | null;
+  foundedYear: number | null;
+  status: string | null;
+  fundingStage: string | null;
+  /** USD. */
+  totalFunding: number | null;
+  lastFundingAmount: number | null;
+  lastFundingDate: string | null;
+  /** Seedtable-pont, 0–100. */
+  score: number | null;
+  likelyToHire: boolean | null;
+  likelyToOutsource: boolean | null;
+  tags: string[];
+  importedAt: string;
+}
+
+/** A Jev modell igen/nem döntése egy cégről. */
+export interface JevVerdict {
+  /** 0–1, két tizedesre kerekítve. */
+  probability: number;
+  question: string;
+  lead: boolean;
+  at: string;
+}
+
 export interface Contact {
   /** Stable, human readable dedupe key. */
   key: string;
@@ -57,6 +91,24 @@ export interface Contact {
   category: string | null;
   tags: string[];
   note: string | null;
+  /** Csak a Seedtable-ből importált soron: a cég teljes adatlapja. */
+  seedtable?: SeedtableInfo;
+  /** A Jev legutóbbi döntése erről a cégről (JEV oldal). */
+  jev?: JevVerdict | null;
+
+  /**
+   * Külső kutatóbot állapota. `in-progress`: egy bot lefoglalta (/api/bot/next),
+   * `done`: elmentette (/api/bot/save). Több bot fut párhuzamosan — a foglalás
+   * miatt nem kapják ugyanazt a céget.
+   */
+  botStatus?: "in-progress" | "done" | null;
+  botClaimedAt?: string | null;
+  /** Eddig él a foglalás; utána a cég újra kiadható (elhalt bot). */
+  botClaimUntil?: string | null;
+  /** Ki foglalta: a `bot` paraméter, ha a bot megadta. */
+  botClaimedBy?: string | null;
+  /** Mentéskor: lett-e cím. */
+  botResult?: "found" | "none" | null;
 
   emailSubject: string;
   emailBody: string;
@@ -202,6 +254,7 @@ export interface ContactDoc extends Contact {
 
 export interface ContactFilters {
   q?: string;
+  /** Egy vagy több forráskulcs, vesszővel elválasztva. */
   source?: string;
   kind?: string;
   channel?: string;
@@ -232,6 +285,8 @@ export interface ContactFilters {
   sent?: "yes" | "no" | "";
   done?: "yes" | "no" | "";
   starred?: "yes" | "no" | "";
+  /** Jev-valószínűség: legalább ennyi ("0.7"), vagy "any" / "none". */
+  jevMin?: string;
   /** `yes` = benne van egy kiküldési queue-ban, `no` = egyikben sincs. */
   inQueue?: "yes" | "no" | "";
   /** Egy adott queue tagjai (a queue azonosítója). */

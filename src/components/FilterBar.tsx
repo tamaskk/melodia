@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import Combobox from "./Combobox";
-import { COUNTRY_LABELS, SOURCE_LABELS } from "@/data";
+import MultiCombobox from "./MultiCombobox";
+import { COUNTRY_LABELS, SOURCE_LABELS, sourceLabel } from "@/data";
 import { COUNTRIES } from "@/lib/countries";
 import { STAGES } from "@/lib/stage";
 import type { ContactFilters } from "@/lib/types";
@@ -50,6 +51,17 @@ function Select({
     </label>
   );
 }
+
+const JEV_OPTIONS = [
+  { value: "", label: "Mind" },
+  { value: "0.9", label: "Legalább 0,9" },
+  { value: "0.8", label: "Legalább 0,8" },
+  { value: "0.7", label: "Legalább 0,7" },
+  { value: "0.6", label: "Legalább 0,6" },
+  { value: "0.5", label: "Legalább 0,5" },
+  { value: "any", label: "Értékelt (bármennyi)" },
+  { value: "none", label: "Még nem értékelt" },
+];
 
 const EMAIL_STATUS = [
   { value: "", label: "Mind" },
@@ -376,12 +388,12 @@ export default function FilterBar({
           className="h-9 min-w-[220px] flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface-2)] px-3 text-sm outline-none placeholder:text-[var(--muted)] focus:border-blue-500"
         />
         <div className="w-full sm:w-72 [&>div>span:first-child]:sr-only">
-          <Combobox
+          <MultiCombobox
             label="Forrás"
-            value={filters.source ?? ""}
-            onChange={(source) => onChange({ source })}
-            emptyLabel="Minden forrás"
-            placeholder="Forrás — írj rá: lengyel, toborzó…"
+            values={(filters.source ?? "").split(",").filter(Boolean)}
+            onChange={(sources) => onChange({ source: sources.join(",") })}
+            unit="forrás"
+            placeholder="Minden forrás — írj rá: lengyel, toborzó…"
             options={[
               // A facetből jövő forrásokat is mutatjuk: kézzel átállított sorok
               // is szűrhetők legyenek, akkor is, ha nincs hozzájuk címke.
@@ -391,7 +403,7 @@ export default function FilterBar({
                 .sort()
                 .map((value) => ({
                   value,
-                  label: SOURCE_LABELS[value] ?? value,
+                  label: sourceLabel(value),
                   // A nyers kulcsra is lehessen keresni: "it-companies-pl".
                   keywords: value.replace(/[-_]/g, " "),
                 })),
@@ -539,6 +551,12 @@ export default function FilterBar({
                   label: stage.label,
                 })),
               ]}
+            />
+            <Select
+              label="Jev valószínűség"
+              value={filters.jevMin ?? ""}
+              onChange={(jevMin) => onChange({ jevMin })}
+              options={JEV_OPTIONS}
             />
             <Select
               label="E-mail"

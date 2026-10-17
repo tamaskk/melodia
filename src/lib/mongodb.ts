@@ -126,6 +126,10 @@ export async function getContacts(): Promise<Collection<Contact>> {
       collection.createIndex({ score: -1, company: 1 }, { name: "sort_score" }),
       collection.createIndex({ domain: 1 }, { name: "company_domain" }),
       collection.createIndex(
+        { "jev.probability": -1 },
+        { name: "jev_probability" },
+      ),
+      collection.createIndex(
         { primaryEmail: -1, company: 1 },
         { name: "sort_email" },
       ),

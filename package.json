@@ -15,7 +15,10 @@
     "backfill-aliases": "tsx scripts/backfill-aliases.ts"
   },
   "dependencies": {
+    "@ai-sdk/gateway": "^4.0.115",
+    "@anthropic-ai/sdk": "^0.135.0",
     "@types/nodemailer": "^8.0.1",
+    "ai": "^7.0.142",
     "dotenv": "^17.4.2",
     "fast-xml-parser": "5.11.2",
     "imapflow": "^1.7.6",
