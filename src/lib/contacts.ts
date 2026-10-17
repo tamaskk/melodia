@@ -205,6 +205,14 @@ export function buildQuery(filters: ContactFilters): Filter<Contact> {
   bool("done", filters.done);
   bool("starred", filters.starred);
 
+  if (filters.jevMin === "any") and.push({ "jev.probability": { $ne: null } } as Filter<Contact>);
+  else if (filters.jevMin === "none") and.push({ "jev.probability": null } as Filter<Contact>);
+  else if (filters.jevMin) {
+    const min = Number(filters.jevMin);
+    if (Number.isFinite(min))
+      and.push({ "jev.probability": { $gte: min } } as Filter<Contact>);
+  }
+
   // Queue-tagság. A `$type` alak a részleges indexet használja; a `null` a
   // hiányzó mezőre is illeszkedik.
   if (filters.inQueue === "yes")

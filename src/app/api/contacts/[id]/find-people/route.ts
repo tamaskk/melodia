@@ -19,7 +19,7 @@ export async function POST(
     }
 
     const body = (await request.json().catch(() => ({}))) as { provider?: string };
-    const provider = (["openai", "claude", "codex"] as const).includes(
+    const provider = (["openai", "claude", "claude-api", "codex"] as const).includes(
       body.provider as SearchProvider,
     )
       ? (body.provider as SearchProvider)

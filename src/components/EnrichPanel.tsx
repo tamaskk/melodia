@@ -37,6 +37,7 @@ interface EnrichState {
 
 const PROVIDERS: { key: string; label: string; hint: string }[] = [
   { key: "claude", label: "Claude", hint: "helyi CLI, az előfizetésedből" },
+  { key: "claude-api", label: "Claude API", hint: "API-kulccsal, cégenként pár cent" },
   { key: "codex", label: "Codex", hint: "helyi CLI, ChatGPT-fiókkal" },
   { key: "openai", label: "OpenAI", hint: "API, cégenként pár cent" },
 ];

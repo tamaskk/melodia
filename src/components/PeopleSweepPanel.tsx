@@ -243,6 +243,7 @@ export default function PeopleSweepPanel({
               [
                 ["openai", "OpenAI"],
                 ["claude", "Claude"],
+                ["claude-api", "Claude API"],
                 ["codex", "Codex"],
               ] as [SearchProviderChoice, string][]
             ).map(([value, name]) => (

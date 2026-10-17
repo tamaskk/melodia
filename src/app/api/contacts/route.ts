@@ -43,6 +43,7 @@ export function filtersFromParams(params: URLSearchParams): ContactFilters {
     starred: (params.get("starred") as ContactFilters["starred"]) ?? undefined,
     inQueue: (params.get("inQueue") as ContactFilters["inQueue"]) ?? undefined,
     queueId: params.get("queueId") ?? undefined,
+    jevMin: params.get("jevMin") ?? undefined,
     sort: params.get("sort") ?? undefined,
   };
 }

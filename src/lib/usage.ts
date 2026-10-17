@@ -16,7 +16,7 @@ const log = createLogger("usage");
 /** Amit egy keresésről tudunk. Minden mező opcionális: nem minden motor ad meg mindent. */
 export interface SearchUsage {
   /** `scrape` = modell nélküli letöltés + regex, nulla tokenből. */
-  provider: "openai" | "claude" | "codex" | "scrape";
+  provider: "openai" | "claude" | "claude-api" | "codex" | "scrape";
   model: string;
   /** Friss (nem cache-elt) bemenet. */
   inputTokens: number;

@@ -247,13 +247,14 @@ function parseJson(raw: string): Record<string, unknown> {
   return JSON.parse(cleaned.slice(start, end + 1)) as Record<string, unknown>;
 }
 
-export type SearchProvider = "openai" | "claude" | "codex";
+export type SearchProvider = "openai" | "claude" | "claude-api" | "codex";
 
 /** Alapértelmezett motor, ha a hívó nem választ: "openai" vagy "claude". */
 export function searchProvider(): SearchProvider {
   const configured = credential("EMAIL_SEARCH_PROVIDER", "openai").toLowerCase();
   if (configured === "claude") return "claude";
   if (configured === "codex") return "codex";
+  if (configured === "claude-api") return "claude-api";
   return "openai";
 }
 
@@ -263,6 +264,7 @@ export function availableProviders(): SearchProvider[] {
   if (openAiKey().length > 0) list.push("openai");
   // A CLI-k meglétét nem itt ellenőrizzük: a hívás úgyis beszédes hibát ad.
   list.push("claude", "codex");
+  if (credential("ANTHROPIC_API_KEY").length > 0) list.push("claude-api");
   return list;
 }
 
@@ -363,6 +365,14 @@ export async function findEmailsBatch(
     provider,
     cegek: contacts.map((contact) => contact.company),
   });
+
+  if (provider === "claude-api") {
+    const findings = await (
+      await import("./emailFinderClaudeApi")
+    ).findEmailsBatchWithClaudeApi(contacts);
+    done(`${findings.filter((f) => f.email).length}/${contacts.length} címmel`);
+    return findings;
+  }
 
   if (provider === "claude" || provider === "codex") {
     const findings =
@@ -605,11 +615,13 @@ async function trackUsage(
 ): Promise<SearchUsage | null> {
   let usage: SearchUsage | null = null;
 
-  if (provider === "claude" || provider === "codex") {
+  if (provider === "claude" || provider === "codex" || provider === "claude-api") {
     const { takeLastStats } =
       provider === "claude"
         ? await import("./emailFinderClaude")
-        : await import("./emailFinderCodex");
+        : provider === "claude-api"
+          ? await import("./emailFinderClaudeApi")
+          : await import("./emailFinderCodex");
     const stats = takeLastStats();
     if (stats) usage = { provider, ...stats };
   } else if (lastOpenAiStats) {
@@ -652,6 +664,10 @@ async function runSingleSearch(
   if (provider === "claude") {
     const { findEmailWithClaudeCli } = await import("./emailFinderClaude");
     return findEmailWithClaudeCli(contact);
+  }
+  if (provider === "claude-api") {
+    const { findEmailWithClaudeApi } = await import("./emailFinderClaudeApi");
+    return findEmailWithClaudeApi(contact);
   }
   if (provider === "codex") {
     const { findEmailWithCodexCli } = await import("./emailFinderCodex");

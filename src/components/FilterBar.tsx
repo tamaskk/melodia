@@ -52,6 +52,17 @@ function Select({
   );
 }
 
+const JEV_OPTIONS = [
+  { value: "", label: "Mind" },
+  { value: "0.9", label: "Legalább 0,9" },
+  { value: "0.8", label: "Legalább 0,8" },
+  { value: "0.7", label: "Legalább 0,7" },
+  { value: "0.6", label: "Legalább 0,6" },
+  { value: "0.5", label: "Legalább 0,5" },
+  { value: "any", label: "Értékelt (bármennyi)" },
+  { value: "none", label: "Még nem értékelt" },
+];
+
 const EMAIL_STATUS = [
   { value: "", label: "Mind" },
   { value: "found", label: "Van" },
@@ -540,6 +551,12 @@ export default function FilterBar({
                   label: stage.label,
                 })),
               ]}
+            />
+            <Select
+              label="Jev valószínűség"
+              value={filters.jevMin ?? ""}
+              onChange={(jevMin) => onChange({ jevMin })}
+              options={JEV_OPTIONS}
             />
             <Select
               label="E-mail"
