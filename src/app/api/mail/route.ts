@@ -10,6 +10,7 @@ import {
 import { ensureAccounts, publicAccounts } from "@/lib/accounts";
 import { isInboxReady } from "@/lib/inbox";
 import { threadReplyStatuses } from "@/lib/threadReplies";
+import { draftThreadIds } from "@/lib/autoDrafts";
 
 export const dynamic = "force-dynamic";
 
@@ -30,11 +31,15 @@ export async function GET(request: NextRequest) {
     const rejected = params.get("rejected") === "1";
     const account = params.get("account")?.trim() || undefined;
     const day = params.get("day") ?? "";
+    // `piszkozat`: nem állapot, hanem a kész Gmail-piszkozatos szálak.
+    const status = params.get("status") ?? "";
+    const drafts = status === "piszkozat";
     await ensureAccounts();
     const [{ threads, stats }, daily, scheduled] = await Promise.all([
       listThreads({
         q: params.get("q") ?? "",
-        status: (params.get("status") ?? "") as ThreadStatus | "",
+        status: drafts ? "" : (status as ThreadStatus | ""),
+        threadIds: drafts ? await draftThreadIds() : undefined,
         rejected,
         account,
         day: /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : undefined,

@@ -197,6 +197,8 @@ export interface ThreadFilters {
    * levelet és az aznapi darabszámot mutatja, nem a szál egészét.
    */
   day?: string;
+  /** Csak ezek a szálak (pl. amelyekhez kész piszkozat van). */
+  threadIds?: Set<string>;
   limit?: number;
 }
 
@@ -517,6 +519,10 @@ function applyFilters(
   }
   if (filters.status) {
     rows = rows.filter((thread) => thread.status === filters.status);
+  }
+  if (filters.threadIds) {
+    const only = filters.threadIds;
+    rows = rows.filter((thread) => only.has(thread.threadId));
   }
   if (filters.q?.trim()) {
     const needle = filters.q.trim().toLowerCase();
@@ -925,4 +931,47 @@ export async function conversation(
     subject: message.subject ?? "",
     text: stripQuoted(message.text ?? "").slice(0, 2500),
   }));
+}
+
+/**
+ * A falu Lekérő házának: egy fiók postafiókjába ma beérkezett levelek, a
+ * legfrissebb elöl. Az automatikus és visszapattant leveleket nem számoljuk.
+ */
+export async function inboxToday(
+  address: string,
+  since: Date,
+  limit = 50,
+): Promise<{
+  count: number;
+  latestAt: string | null;
+  items: { company: string; from: string; subject: string; at: string }[];
+}> {
+  const filter = {
+    date: { $gte: since.toISOString() },
+    direction: "in" as const,
+    account: address.toLowerCase(),
+    auto: { $ne: true },
+    bounce: { $ne: true },
+  };
+  const collection = await mailCollection();
+  const [count, docs] = await Promise.all([
+    collection.countDocuments(filter),
+    collection
+      .find(filter, {
+        projection: { _id: 0, company: 1, from: 1, subject: 1, date: 1 },
+      })
+      .sort({ date: -1 })
+      .limit(limit)
+      .toArray(),
+  ]);
+  return {
+    count,
+    latestAt: docs[0]?.date ?? null,
+    items: docs.map((doc) => ({
+      company: doc.company ?? doc.from.name ?? doc.from.address,
+      from: doc.from.address,
+      subject: doc.subject,
+      at: doc.date,
+    })),
+  };
 }

@@ -753,3 +753,107 @@ export function startAutoSync(): number {
   setTimeout(tick, 60_000);
   return minutes;
 }
+
+/** Begyűjtés indítása, és megvárja a végét (ha már fut, azt várja meg). */
+export async function syncAndWait(): Promise<SyncState> {
+  startSync();
+  await sync.running;
+  return syncState();
+}
+
+/**
+ * Egy kész levél (RFC 822) a fiók Gmail Piszkozatok mappájába. A mappa neve
+ * nyelvenként más, ezért a `\\Drafts` jelöléséből keressük meg.
+ */
+export async function appendDraft(
+  config: MailerConfig,
+  raw: Buffer,
+): Promise<void> {
+  const client = connect(config.user, config.password);
+  await client.connect();
+  try {
+    const path = findMailbox(await client.list(), "\\Drafts", "[Gmail]/Drafts");
+    await client.append(path, raw, ["\\Draft", "\\Seen"]);
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
+
+/**
+ * Egy piszkozat a Piszkozatok mappában, Message-ID alapján: `remove` nélkül
+ * a szövegét adja (null, ha nincs meg), `remove`-val törli (küldés után).
+ */
+export async function draftByMessageId(
+  config: MailerConfig,
+  messageId: string,
+  remove = false,
+): Promise<string | null> {
+  const client = connect(config.user, config.password);
+  await client.connect();
+  try {
+    const path = findMailbox(await client.list(), "\\Drafts", "[Gmail]/Drafts");
+    const lock = await client.getMailboxLock(path, { readOnly: !remove });
+    try {
+      const uids = await client.search(
+        { header: { "message-id": messageId } },
+        { uid: true },
+      );
+      if (!Array.isArray(uids) || !uids.length) return null;
+      if (remove) {
+        await client.messageDelete(uids, { uid: true });
+        return null;
+      }
+      const message = await client.fetchOne(
+        String(uids[0]),
+        { source: true },
+        { uid: true },
+      );
+      if (!message || !message.source) return null;
+      return (await simpleParser(message.source)).text?.trim() ?? null;
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
+
+/**
+ * Megvannak-e még a piszkozatok a fiók Piszkozatok mappájában. Message-ID-re
+ * keres, és ha így nincs meg, a címzettre (régi bejegyzésnél csak arra). A válasz a
+ * bemenet sorrendjében: igaz, ha megvan.
+ */
+export async function draftsPresent(
+  config: MailerConfig,
+  items: { messageId?: string; to: string; subject: string }[],
+): Promise<boolean[]> {
+  if (!items.length) return [];
+  const client = connect(config.user, config.password);
+  await client.connect();
+  try {
+    const path = findMailbox(await client.list(), "\\Drafts", "[Gmail]/Drafts");
+    const lock = await client.getMailboxLock(path, { readOnly: true });
+    try {
+      const present: boolean[] = [];
+      const any = async (query: Parameters<typeof client.search>[0]) => {
+        const found = await client.search(query, { uid: true });
+        return Array.isArray(found) && found.length > 0;
+      };
+      for (const item of items) {
+        // A tárgyra keresés ékezetes, gondolatjeles tárgynál téved (nem talál),
+        // ezért a címzettre esünk vissza: kétes esetben inkább „megvan” —
+        // egy kimaradt újraírás jobb, mint egy dupla piszkozat.
+        present.push(
+          (item.messageId !== undefined &&
+            (await any({ header: { "message-id": item.messageId } }))) ||
+            (await any({ to: item.to })),
+        );
+      }
+      return present;
+    } finally {
+      lock.release();
+    }
+  } finally {
+    await client.logout().catch(() => undefined);
+  }
+}
