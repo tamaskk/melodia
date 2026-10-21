@@ -99,6 +99,8 @@ export default function AppNav() {
   const [provider, chooseProvider] = useSearchProvider();
   const [syncNote, setSyncNote] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  // Az „Animáció” kapcsoló a falu-nézet és a CRM között vált.
+  const animations = pathname.startsWith("/falu");
 
   // Kattintás máshová vagy Escape bezárja a nyitott menüt.
   useEffect(() => {
@@ -262,7 +264,29 @@ export default function AppNav() {
           {dropdown("system", SYSTEM)}
         </div>
 
-        <div className="ml-auto sm:relative">
+        <button
+          type="button"
+          role="switch"
+          aria-checked={animations}
+          onClick={() => router.push(animations ? "/" : "/falu")}
+          title="Falu-nézet: minden küldő fiók egy ház"
+          className="ml-auto flex h-9 items-center gap-2 whitespace-nowrap rounded-lg px-3 text-sm text-[var(--muted)] transition hover:text-foreground"
+        >
+          Animáció
+          <span
+            className={`relative h-5 w-9 rounded-full transition ${
+              animations ? "bg-blue-600" : "bg-[var(--surface-2)]"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all ${
+                animations ? "left-[18px]" : "left-0.5"
+              }`}
+            />
+          </span>
+        </button>
+
+        <div className="sm:relative">
           {trigger("settings", "⚙ Beállítások", false)}
           {menu === "settings" ? (
             <div

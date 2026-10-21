@@ -345,7 +345,10 @@ export default function ScheduledReplies({
                       <span className="text-[var(--muted)]">
                         Csatolmány (kötelező — a levél hivatkozik rá):
                       </span>
-                      {files.map((key) => (
+                      {[
+                        ...files,
+                        ...item.attachments.filter((key) => !files.includes(key)),
+                      ].map((key) => (
                         <label key={key} className="flex items-center gap-1.5">
                           <input
                             type="checkbox"
@@ -366,8 +369,18 @@ export default function ScheduledReplies({
                             }
                           />
                           {key}
+                          {files.includes(key) ? null : (
+                            <span className="text-amber-500">
+                              ⚠ nincs a mappában
+                            </span>
+                          )}
                         </label>
                       ))}
+                      {item.attachments.length ? null : (
+                        <span className="text-amber-500">
+                          ⚠ nincs csatolmány kiválasztva
+                        </span>
+                      )}
                     </div>
                   ) : (
                     <p className="text-[11px] text-[var(--muted)]">

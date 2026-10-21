@@ -4,12 +4,16 @@ import {
   sendThreadMail,
   threadTarget,
 } from "@/lib/threadCompose";
+import { markDraftSent, threadDraft } from "@/lib/autoDrafts";
 
 export const dynamic = "force-dynamic";
 // A piszkozatot a helyi Claude CLI írja — ez percig is eltarthat.
 export const maxDuration = 120;
 
-/** `?threadId=` — honnan és kinek menne a levél ebben a szálban. */
+/**
+ * `?threadId=` — honnan és kinek menne a levél ebben a szálban, és a kész
+ * Gmail-piszkozat, ha a Válasz ház már megírta.
+ */
 export async function GET(request: NextRequest) {
   const threadId = request.nextUrl.searchParams.get("threadId") ?? "";
   if (!threadId) {
@@ -19,7 +23,11 @@ export async function GET(request: NextRequest) {
     );
   }
   try {
-    return NextResponse.json({ target: await threadTarget(threadId) });
+    const [target, draft] = await Promise.all([
+      threadTarget(threadId),
+      threadDraft(threadId),
+    ]);
+    return NextResponse.json({ target, draft });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
@@ -33,7 +41,8 @@ const text = (value: unknown): string =>
 
 /**
  * `{ action: "draft", threadId, instruction }` — piszkozat a prompt alapján
- * `{ action: "send", threadId, subject, body, attachments }` — azonnal a szálba
+ * `{ action: "send", threadId, subject, body, attachments, fromDraft }` — azonnal
+ * a szálba; `fromDraft`: a Gmail-piszkozat elküldve, törölhető
  */
 export async function POST(request: NextRequest) {
   try {
@@ -59,14 +68,13 @@ export async function POST(request: NextRequest) {
             (item): item is string => typeof item === "string" && !!item,
           )
         : [];
-      return NextResponse.json({
-        ok: true,
-        ...(await sendThreadMail(threadId, {
-          subject: text(body.subject),
-          body: text(body.body),
-          attachments,
-        })),
+      const sent = await sendThreadMail(threadId, {
+        subject: text(body.subject),
+        body: text(body.body),
+        attachments,
       });
+      if (body.fromDraft === true) await markDraftSent(threadId);
+      return NextResponse.json({ ok: true, ...sent });
     }
     return NextResponse.json(
       { error: "Ismeretlen művelet (draft vagy send)." },

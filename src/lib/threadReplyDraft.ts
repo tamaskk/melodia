@@ -8,6 +8,12 @@
  */
 import { PROFILE } from "./profile";
 
+/** Csatolmány a levél nyelve szerint — a modell csak a nyelvet dönti el. */
+export const LANGUAGE_ATTACHMENT: Record<string, string> = {
+  hu: "kt_bemutatkozo.pdf",
+  en: "kt_introduce.pdf",
+};
+
 export type ThreadReplyStatus =
   /** A küldő gép még nem írta meg a piszkozatot. */
   | "generalas"

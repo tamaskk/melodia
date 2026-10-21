@@ -7,6 +7,7 @@ import ScheduledReplies from "./ScheduledReplies";
 import ThreadComposer from "./ThreadComposer";
 import { formatNumber } from "@/lib/format";
 import {
+  LANGUAGE_ATTACHMENT,
   STATUS_LABELS as REPLY_LABELS,
   type ThreadReplyStatus,
 } from "@/lib/threadReplyDraft";
@@ -122,8 +123,10 @@ const MARKS: ThreadStatus[] = [
   "visszapattant",
 ];
 
-const FILTERS: { key: ThreadStatus | ""; label: string }[] = [
+/** `piszkozat`: nem állapot — a szálak, amelyekhez a Válasz ház kész piszkozatot írt. */
+const FILTERS: { key: ThreadStatus | "" | "piszkozat"; label: string }[] = [
   { key: "", label: "mind" },
+  { key: "piszkozat", label: "piszkozat" },
   { key: "valasz-var", label: "válasz jött" },
   { key: "valaszoltam", label: "válaszoltam" },
   { key: "nem-kell-valasz", label: "nem kell válasz" },
@@ -263,7 +266,7 @@ export default function MailApp({
 }) {
   const [threads, setThreads] = useState<MailThread[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
-  const [status, setStatus] = useState<ThreadStatus | "">("");
+  const [status, setStatus] = useState<ThreadStatus | "" | "piszkozat">("");
   const [query, setQuery] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
   const [messages, setMessages] = useState<MailMessage[]>([]);
@@ -682,7 +685,17 @@ export default function MailApp({
           </p>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <span className="text-[var(--muted)]">
-              Csatolmány (ha üres: a levél nyelve szerint a bemutatkozó PDF):
+              Csatolmány (ha üres, a levél nyelve dönt:{" "}
+              {Object.entries(LANGUAGE_ATTACHMENT)
+                .map(([language, name]) => {
+                  const key = `${language}/${name}`;
+                  const found = files?.some(
+                    (file) => file.key === key || file.key === name,
+                  );
+                  return `${language} → ${name}${found ? "" : " ⚠ nincs a mappában"}`;
+                })
+                .join(", ")}
+              ):
             </span>
             {files?.length ? (
               files.map((file) => (

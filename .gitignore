@@ -61,3 +61,6 @@ graphify-out/cache/
 graphify-out/20*/
 graphify-out/.graphify_labels.pending.json
 graphify-out/.graphify_labels.json.sig
+
+# Cute Fantasy asset pack — a licenc tiltja a továbbadást
+/public/village/

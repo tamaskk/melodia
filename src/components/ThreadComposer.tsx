@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface Target {
   company: string;
@@ -16,6 +16,13 @@ interface AttachmentChoice {
   name: string;
 }
 
+/** A Válasz ház kész Gmail-piszkozata ehhez a szálhoz. */
+interface Draft {
+  subject: string;
+  body: string;
+  attachment: string | null;
+}
+
 interface Sent {
   account: string;
   to: string;
@@ -25,6 +32,8 @@ interface Sent {
 /**
  * Levél egy megnyitott szálba: a felhasználó leírja, mit akar, a Claude
  * megírja a szál előzményéből, átírható, és a gombra azonnal kimegy a szálba.
+ * Ha a Válasz ház már megírta a piszkozatot, kitöltve nyílik ki, és a szál
+ * aljára görget: átolvasod, és innen elküldöd.
  * A szülő `key={threadId}`-vel adja, így szálváltáskor tiszta lappal indul.
  */
 export default function ThreadComposer({ threadId }: { threadId: string }) {
@@ -39,10 +48,11 @@ export default function ThreadComposer({ threadId }: { threadId: string }) {
   const [busy, setBusy] = useState<"draft" | "send" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<Sent | null>(null);
+  const [fromDraft, setFromDraft] = useState(false);
+  const section = useRef<HTMLElement>(null);
 
-  // Kinyitáskor: honnan, kinek, és milyen csatolmány választható.
+  // Honnan, kinek — és ha van kész piszkozat, azzal kinyílik.
   useEffect(() => {
-    if (!open) return;
     let alive = true;
     void fetch(`/api/mail/thread?threadId=${encodeURIComponent(threadId)}`, {
       cache: "no-store",
@@ -50,10 +60,35 @@ export default function ThreadComposer({ threadId }: { threadId: string }) {
       .then(async (response) => {
         const data = await response.json();
         if (!alive) return;
-        if (!response.ok) setError(data.error ?? "Hiba");
-        else setTarget(data.target as Target);
+        if (!response.ok) {
+          setError(data.error ?? "Hiba");
+          return;
+        }
+        setTarget(data.target as Target);
+        const draft = data.draft as Draft | null;
+        if (draft) {
+          setSubject(draft.subject);
+          setBody(draft.body);
+          setPicked(draft.attachment ? [draft.attachment] : []);
+          setFromDraft(true);
+          setOpen(true);
+        }
       })
       .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [threadId]);
+
+  // A kitöltött piszkozat a szál alján: odagörgetünk, hogy a Küldés gomb látsszon.
+  useEffect(() => {
+    if (fromDraft) section.current?.scrollIntoView({ block: "end" });
+  }, [fromDraft]);
+
+  // Kinyitáskor: milyen csatolmány választható.
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
     void fetch("/api/mail/scheduled", { cache: "no-store" })
       .then((response) => response.json())
       .then((data) => {
@@ -65,7 +100,7 @@ export default function ThreadComposer({ threadId }: { threadId: string }) {
     return () => {
       alive = false;
     };
-  }, [open, threadId]);
+  }, [open]);
 
   const draft = async () => {
     setBusy("draft");
@@ -103,11 +138,13 @@ export default function ThreadComposer({ threadId }: { threadId: string }) {
           subject,
           body,
           attachments: picked,
+          fromDraft,
         }),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Hiba");
       setSent(data as Sent);
+      setFromDraft(false);
       setBody("");
       setInstruction("");
       setPicked([]);
@@ -131,10 +168,13 @@ export default function ThreadComposer({ threadId }: { threadId: string }) {
   }
 
   return (
-    <section className="space-y-3 rounded-xl border border-blue-500/40 bg-blue-500/5 p-3">
+    <section
+      ref={section}
+      className="space-y-3 rounded-xl border border-blue-500/40 bg-blue-500/5 p-3"
+    >
       <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
         <span className="text-sm font-medium text-foreground">
-          Levél a szálba
+          {fromDraft ? "Piszkozat — olvasd át, és küldd el" : "Levél a szálba"}
         </span>
         {target ? (
           <span>
@@ -234,7 +274,8 @@ export default function ThreadComposer({ threadId }: { threadId: string }) {
           {sent.attachments.length
             ? ` · csatolva: ${sent.attachments.join(", ")}`
             : ""}
-          . A szálban a következő levél-szinkron után jelenik meg.
+          . A szálban a következő levél-szinkron után jelenik meg; a
+          Gmail-piszkozatot töröltem.
         </p>
       ) : null}
       {error ? (

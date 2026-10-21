@@ -36,6 +36,7 @@ import {
   APPROVABLE,
   EDITABLE,
   isNoReply,
+  LANGUAGE_ATTACHMENT,
   replySubject,
   roomToday,
   type ThreadReplyStatus,
@@ -54,11 +55,6 @@ const LLM_CONCURRENCY = 2;
 const LLM_DRAFTS_PER_RUN = 30;
 /** A soron kívüli válaszok köre: ennyi időnként néz rá a küldő gép. */
 const PRIORITY_TICK_MS = 20_000;
-/** Csatolmány a levél nyelve szerint — a modell csak a nyelvet dönti el. */
-const LANGUAGE_ATTACHMENT: Record<string, string> = {
-  hu: "kt_bemutatkozo.pdf",
-  en: "kt_introduce.pdf",
-};
 /** Egy kéréssel ennyi szál időzíthető. */
 export const MAX_PER_REQUEST = 100;
 
@@ -973,4 +969,111 @@ export function startThreadReplyRunner(): boolean {
       );
   flags.__melodiaReplyTimer = setInterval(run, TICK_MS);
   return true;
+}
+
+/**
+ * A falu Válasz házának: egy fiók válaszai — ami jóváhagyásra vár, ami
+ * jóváhagyva sorban áll, és ami ma kiment.
+ */
+export async function repliesToday(
+  accountId: string,
+  since: Date,
+): Promise<{
+  waiting: { company: string; status: ThreadReplyStatus }[];
+  sent: { company: string; at: string }[];
+  lastSentAt: string | null;
+}> {
+  const docs = await (
+    await replies()
+  )
+    .find(
+      {
+        accountId,
+        $or: [
+          {
+            status: { $in: ["generalas", "atnezendo", "jovahagyva", "kuldes"] },
+          },
+          { status: "kiment", sentAt: { $gte: since.toISOString() } },
+        ],
+      },
+      { projection: { _id: 0, company: 1, status: 1, sentAt: 1 } },
+    )
+    .sort({ sentAt: -1, createdAt: 1 })
+    .limit(200)
+    .toArray();
+  const sent = docs
+    .filter((doc) => doc.status === "kiment" && doc.sentAt)
+    .map((doc) => ({ company: doc.company, at: doc.sentAt as string }));
+  return {
+    waiting: docs
+      .filter((doc) => doc.status !== "kiment")
+      .map((doc) => ({ company: doc.company, status: doc.status })),
+    sent,
+    lastSentAt: sent[0]?.at ?? null,
+  };
+}
+
+/** Egy szálra írt válasz, kiküldés nélkül — az automatikus Gmail-piszkozathoz. */
+export interface ComposedReply {
+  threadId: string;
+  accountId: string;
+  company: string;
+  to: string;
+  toName: string | null;
+  subject: string;
+  inReplyTo: string | null;
+  repliedToAt: string;
+  body: string;
+  language: string | null;
+}
+
+/**
+ * Megírja a választ a szál legutóbbi emberi levelére, ugyanazzal a modellel és
+ * stílusmintákkal, mint a válasz-queue — de nem teszi be a queue-ba.
+ */
+export async function composeThreadReply(
+  threadId: string,
+): Promise<ComposedReply> {
+  await ensureAccounts();
+  const mail = (await latestIncoming([threadId])).get(threadId);
+  if (!mail?.from) throw new Error("nincs a szálban emberi levél");
+  if (isNoReply(mail.from)) throw new Error(`robotcímről jött (${mail.from})`);
+  const account = listAccounts().find((item) =>
+    mail.to.includes(item.user.toLowerCase()),
+  );
+  if (!account) throw new Error("nem találom a fiókot, amelyikre jött");
+  const company = mail.company ?? mail.from;
+  const draft = await compose({
+    threadId,
+    company,
+    toName: mail.fromName,
+  } as ThreadReply);
+  return {
+    threadId,
+    accountId: account.id,
+    company,
+    to: mail.from,
+    toName: mail.fromName,
+    subject: replySubject(mail.subject),
+    inReplyTo: mail.messageId,
+    repliedToAt: mail.date,
+    body: draft.body,
+    language: draft.language,
+  };
+}
+
+/** Van-e már a szálra válasz a queue-ban (akkor az automatikus piszkozat kimarad). */
+export async function threadsInReplyQueue(
+  threadIds: string[],
+): Promise<Set<string>> {
+  if (!threadIds.length) return new Set();
+  const docs = await (
+    await replies()
+  )
+    .find(
+      { threadId: { $in: threadIds } },
+      { projection: { _id: 0, threadId: 1 } },
+    )
+    .toArray();
+  return new Set(docs.map((doc) => doc.threadId));
 }

@@ -36,7 +36,11 @@ import { ObjectId } from "mongodb";
 import { getContacts, getDb } from "./mongodb";
 import { followUpDraft, isFollowUpDue } from "./followup";
 import { firstOutgoingFrom, originalOutgoing } from "./mailStore";
-import { QUEUE_WINDOW_FROM, QUEUE_WINDOW_TO } from "./queuePlan";
+import {
+  QUEUE_WINDOW_FROM,
+  QUEUE_WINDOW_TO,
+  remainingToday,
+} from "./queuePlan";
 import { warmupCap, warmupLabel } from "./warmup";
 import {
   alreadyContacted,
@@ -342,6 +346,114 @@ export function campaignState(accountId?: string | null): CampaignState | null {
   resetDailyCounterIfNeeded(runner);
   refreshCap(runner);
   return { ...runner.state, recent: [...runner.state.recent] };
+}
+
+/**
+ * A falu-nézetnek, az adatbázisból: a queue-k a küldő gépen futnak, ezért a
+ * memória itt (pl. néző példányon) üres lehet — a mentett menet a döntő.
+ * A teljes sort nem hozzuk át, csak az utolsó küldést.
+ */
+export async function villageSenders(): Promise<
+  { id: string; status: string; nextAt: string | null; lastSentAt: string | null }[]
+> {
+  const docs = await (await campaigns())
+    .find(
+      {},
+      {
+        projection: {
+          _id: 0,
+          accountId: 1,
+          status: 1,
+          stopRequested: 1,
+          nextAt: 1,
+          recent: { $slice: 1 },
+        },
+      },
+    )
+    .toArray();
+  return docs.map((doc) => ({
+    id: doc.accountId,
+    status: doc.stopRequested ? "idle" : doc.status,
+    nextAt: doc.stopRequested ? null : (doc.nextAt ?? null),
+    lastSentAt: doc.recent?.[0]?.at ?? null,
+  }));
+}
+
+/**
+ * Egy fiók mai napja a falu-nézetnek: ami ma kiment, és ami a mai keretből még
+ * várhatóan kimegy, a sor sorrendjében. A sorrend becslés: a küldő az ország
+ * munkaideje szerint előrevehet címzettet, és az ablak végén a maradék nem megy ki.
+ */
+export async function campaignToday(accountId: string): Promise<{
+  sent: SentItem[];
+  upcoming: { company: string; email: string }[];
+} | null> {
+  if (!getAccount(accountId)) return null;
+  const doc = await (await campaigns()).findOne(
+    { accountId },
+    {
+      projection: {
+        _id: 0,
+        status: 1,
+        stopRequested: 1,
+        sentToday: 1,
+        dayStamp: 1,
+        "options.dailyLimit": 1,
+        "options.minMinutes": 1,
+        "options.maxMinutes": 1,
+        recent: 1,
+        queue: { $slice: 200 },
+      },
+    },
+  );
+  if (!doc) return { sent: [], upcoming: [] };
+  const today = new Date().toDateString();
+  const sent = (doc.recent ?? []).filter(
+    (item) => new Date(item.at).toDateString() === today,
+  );
+  const running =
+    (doc.status === "running" || doc.status === "stopping") &&
+    !doc.stopRequested;
+  const sentToday = doc.dayStamp === today ? (doc.sentToday ?? 0) : 0;
+  // A napi keret és az ablak végéig hátralévő idő közül a szűkebb.
+  const left = running
+    ? Math.max(
+        0,
+        Math.min(
+          (doc.options?.dailyLimit ?? 0) - sentToday,
+          remainingToday(
+            new Date(),
+            doc.options?.minMinutes ?? 10,
+            doc.options?.maxMinutes ?? 20,
+          ),
+        ),
+      )
+    : 0;
+  const ids = (doc.queue ?? [])
+    .slice(0, left)
+    .filter((id) => ObjectId.isValid(id));
+  if (!ids.length) return { sent, upcoming: [] };
+  const docs = await (await getContacts())
+    .find(
+      { _id: { $in: ids.map((id) => new ObjectId(id)) } },
+      { projection: { company: 1, primaryEmail: 1 } },
+    )
+    .toArray();
+  const byId = new Map(docs.map((contact) => [String(contact._id), contact]));
+  return {
+    sent,
+    upcoming: ids.flatMap((id) => {
+      const contact = byId.get(id);
+      return contact
+        ? [
+            {
+              company: String(contact.company ?? ""),
+              email: String(contact.primaryEmail ?? ""),
+            },
+          ]
+        : [];
+    }),
+  };
 }
 
 /** A felfuttatás a beállításokban bármikor ki-be kapcsolható — kövesse az állapot. */
