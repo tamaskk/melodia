@@ -10,6 +10,7 @@
 import MailComposer from "nodemailer/lib/mail-composer";
 import { getAccount } from "./accounts";
 import { resolveSelection } from "./attachments";
+import { replyAttachmentFor } from "./replyAttachments";
 import {
   appendDraft,
   draftByMessageId,
@@ -31,11 +32,6 @@ const OUTAGE =
 const EVERY_MS = 10 * 60_000;
 /** Egy lekérés legfeljebb ennyi levelet hoz — a többi a következő körre marad. */
 const PER_RUN = 10;
-
-/** Magyar leadnél a magyar bemutatkozó, minden másnál az angol. */
-export function attachmentFor(language: string | null): string {
-  return language === "hu" ? "hu/kt_introduce.pdf" : "en/kt_introduce.pdf";
-}
 
 export interface AutoDraft {
   threadId: string;
@@ -332,8 +328,9 @@ async function writeOne(thread: Thread, runAt: string): Promise<boolean> {
     if (account?.provider !== "gmail") {
       throw new Error("a fiók nem Gmail — nincs Piszkozatok mappája");
     }
-    const name = attachmentFor(reply.language);
-    const { files } = await resolveSelection([name]);
+    // A nyelvhez a Beállításokban választott fájl; üresen csatolmány nélkül.
+    const name = await replyAttachmentFor(reply.language);
+    const { files } = name ? await resolveSelection([name]) : { files: [] };
     const file = files[0] ?? null;
     const { raw, messageId } = await buildMessage(
       reply,
@@ -352,11 +349,13 @@ async function writeOne(thread: Thread, runAt: string): Promise<boolean> {
         attachment: file ? name : null,
         status: "kesz",
         messageId,
-        note: file ? null : `nincs meg a csatolmány: ${name}`,
+        note: file || !name ? null : `nincs meg a csatolmány: ${name}`,
         draftedAt: new Date().toISOString(),
       },
     });
-    log.info(`Gmail-piszkozat kész: ${reply.company} (${name})`);
+    log.info(
+      `Gmail-piszkozat kész: ${reply.company} (${name ?? "csatolmány nélkül"})`,
+    );
     return true;
   } catch (error) {
     const message = (error as Error).message;

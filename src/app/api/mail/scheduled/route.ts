@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { availableAttachments } from "@/lib/attachmentIndex";
+import { getReplyAttachments } from "@/lib/replyAttachments";
 import { senderStatus } from "@/lib/role";
 import {
   MAX_PER_REQUEST,
@@ -17,16 +18,17 @@ export const dynamic = "force-dynamic";
 /** Az időzített válaszok listája, a választható csatolmányok és a küldő gép állapota. */
 export async function GET() {
   try {
-    const [items, attachments, sender] = await Promise.all([
+    const [items, attachments, sender, replyAttachments] = await Promise.all([
       listThreadReplies(),
       availableAttachments(),
       senderStatus(),
+      getReplyAttachments(),
     ]);
     // Ha maradt megíratlan piszkozat, a háttérben elindul — a válasz nem vár rá.
     if (items.some((item) => item.status === "generalas")) {
       void draftPending().catch(() => undefined);
     }
-    return NextResponse.json({ items, attachments, sender });
+    return NextResponse.json({ items, attachments, sender, replyAttachments });
   } catch (error) {
     return NextResponse.json(
       { error: (error as Error).message },
@@ -60,7 +62,7 @@ export async function POST(request: NextRequest) {
       subject?: unknown;
       body?: unknown;
       attachments?: unknown;
-    day?: unknown;
+      day?: unknown;
     };
     const id = typeof body.id === "string" ? body.id : "";
 

@@ -142,6 +142,8 @@ interface AiDraft {
 export default function MessagePanel({
   contact,
   onClose,
+  onPrev,
+  onNext,
   onPatch,
   onRestored,
   aiEnabled = false,
@@ -151,6 +153,9 @@ export default function MessagePanel({
 }: {
   contact: ContactDoc | null;
   onClose: () => void;
+  /** Az előző / következő cég a listában (← / → is); hiányzik a lista szélén. */
+  onPrev?: () => void;
+  onNext?: () => void;
   onPatch: (id: string, patch: Record<string, unknown>) => Promise<void> | void;
   onRestored?: (contact: ContactDoc) => void;
   aiEnabled?: boolean;
@@ -612,6 +617,26 @@ export default function MessagePanel({
                 </span>
                 <button
                   type="button"
+                  onClick={onPrev}
+                  disabled={!onPrev}
+                  aria-label="Előző cég"
+                  title="Előző cég (←)"
+                  className="h-8 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--muted)] hover:text-foreground disabled:opacity-30"
+                >
+                  ‹
+                </button>
+                <button
+                  type="button"
+                  onClick={onNext}
+                  disabled={!onNext}
+                  aria-label="Következő cég"
+                  title="Következő cég (→)"
+                  className="h-8 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--muted)] hover:text-foreground disabled:opacity-30"
+                >
+                  ›
+                </button>
+                <button
+                  type="button"
                   onClick={onClose}
                   className="h-8 rounded-lg border border-[var(--border)] px-3 text-sm text-[var(--muted)] hover:text-foreground"
                 >
@@ -716,8 +741,8 @@ export default function MessagePanel({
                                 : provider === "claude-api"
                                   ? "Claude API"
                                   : provider === "codex"
-                                  ? "Helyi Codex CLI"
-                                  : "OpenAI"
+                                    ? "Helyi Codex CLI"
+                                    : "OpenAI"
                             } + webkeresés. Csak olyan címet ad vissza, amit forrással igazolni tud.`}
                   </span>
                 </div>

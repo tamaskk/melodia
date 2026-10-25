@@ -336,10 +336,10 @@
     "semantic_hash": ""
   },
   "src/app/api/mail/scheduled/route.ts": {
-    "mtime": 1792263168.9057088,
-    "seen": 1792269338.757731,
-    "ast_hash": "7a4c9145d9d5767eef68854c1668f02c",
-    "semantic_hash": "7a4c9145d9d5767eef68854c1668f02c"
+    "mtime": 1792924930.065249,
+    "seen": 1792925009.882626,
+    "ast_hash": "6e99a288ba7d3b6ab1743e30445aef1e",
+    "semantic_hash": ""
   },
   "src/app/api/mail/sync/route.ts": {
     "mtime": 1791459524.2299042,
@@ -510,16 +510,16 @@
     "semantic_hash": "95249c9188d27a4df64068dd4c728c19"
   },
   "src/components/AppNav.tsx": {
-    "mtime": 1792405041.0854547,
-    "seen": 1792405089.819936,
-    "ast_hash": "6a584abf0ad48c4b89ef301cc842bc36",
+    "mtime": 1792924927.4429517,
+    "seen": 1792925009.891167,
+    "ast_hash": "4b95eef00c067e5183de37ef3e4a8b0d",
     "semantic_hash": ""
   },
   "src/components/AutoSchedulePanel.tsx": {
-    "mtime": 1791620115.3110106,
-    "seen": 1792269338.75775,
-    "ast_hash": "e397ad5bc2f69fc7ce9831a44e2d7510",
-    "semantic_hash": "e397ad5bc2f69fc7ce9831a44e2d7510"
+    "mtime": 1792749260.1467102,
+    "seen": 1792749389.062988,
+    "ast_hash": "74a2013f860dd514e8ac4c584938c5f4",
+    "semantic_hash": ""
   },
   "src/components/BulkTemplate.tsx": {
     "mtime": 1791620115.3118222,
@@ -558,10 +558,10 @@
     "semantic_hash": "d03ebe5b33dd13b8282deaebc65621fe"
   },
   "src/components/Dashboard.tsx": {
-    "mtime": 1792180772.0486984,
-    "seen": 1792269338.757754,
-    "ast_hash": "6081c916a929432d1ba0d0045867e773",
-    "semantic_hash": "6081c916a929432d1ba0d0045867e773"
+    "mtime": 1792705746.9396458,
+    "seen": 1792705811.794484,
+    "ast_hash": "b4a219c9c8560662c6ef2c1ccc4fc2c0",
+    "semantic_hash": ""
   },
   "src/components/DebugConsole.tsx": {
     "mtime": 1791459524.2794933,
@@ -660,9 +660,9 @@
     "semantic_hash": "18be4a9e44d1c643d22327269c37e19f"
   },
   "src/components/MailApp.tsx": {
-    "mtime": 1792566213.6282563,
-    "seen": 1792566468.940484,
-    "ast_hash": "f275f3745ea426e3e9eea89ad50020f2",
+    "mtime": 1792924902.1202502,
+    "seen": 1792925009.895206,
+    "ast_hash": "0b854b0e84b28c0e6e235f1fac667588",
     "semantic_hash": ""
   },
   "src/components/MailChart.tsx": {
@@ -672,10 +672,10 @@
     "semantic_hash": ""
   },
   "src/components/MessagePanel.tsx": {
-    "mtime": 1792180772.049188,
-    "seen": 1792269338.7577658,
-    "ast_hash": "ae1556981daa26fc2b8e6f93c09718a6",
-    "semantic_hash": "ae1556981daa26fc2b8e6f93c09718a6"
+    "mtime": 1792705749.5429685,
+    "seen": 1792705811.795038,
+    "ast_hash": "c4055799b1b7f5a89bffa5574981ee94",
+    "semantic_hash": ""
   },
   "src/components/MultiCombobox.tsx": {
     "mtime": 1792042690.5547285,
@@ -840,10 +840,10 @@
     "semantic_hash": "85cd7fe8bb2b4e4c5e7c4bb9c0df23c5"
   },
   "src/lib/attachmentIndex.ts": {
-    "mtime": 1791646029.754001,
-    "seen": 1792269338.757783,
-    "ast_hash": "b5b524169e612d0b9daac403299a1351",
-    "semantic_hash": "b5b524169e612d0b9daac403299a1351"
+    "mtime": 1792925193.7362194,
+    "seen": 1792925260.258506,
+    "ast_hash": "452a347d2ed3bce4b07a1bf9f18a132b",
+    "semantic_hash": ""
   },
   "src/lib/attachments.ts": {
     "mtime": 1791620115.3154764,
@@ -858,10 +858,10 @@
     "semantic_hash": "29bad05f17a533e0cc22fa03413464c9"
   },
   "src/lib/autoSchedule.ts": {
-    "mtime": 1791620115.3169675,
-    "seen": 1792269338.757785,
-    "ast_hash": "b4e7167cc3d71922fc0fdbf946589f1f",
-    "semantic_hash": "b4e7167cc3d71922fc0fdbf946589f1f"
+    "mtime": 1792749260.491855,
+    "seen": 1792749389.06483,
+    "ast_hash": "302e1c3e50382b789a9c1f162d7fa0fa",
+    "semantic_hash": ""
   },
   "src/lib/botApi.ts": {
     "mtime": 1792142443.8275237,
@@ -1512,15 +1512,15 @@
     "semantic_hash": "d2e4453ad8304f8fa7a2e1bf86f3fd5d"
   },
   "src/lib/threadReplies.ts": {
-    "mtime": 1792421185.662348,
-    "seen": 1792426590.89951,
-    "ast_hash": "0a2797206a7b7c3e757693ba53e39288",
+    "mtime": 1792924891.7806513,
+    "seen": 1792925009.911917,
+    "ast_hash": "9ffbddebc7656689838ba17918932882",
     "semantic_hash": ""
   },
   "src/lib/threadReplyDraft.ts": {
-    "mtime": 1792331886.625146,
-    "seen": 1792331921.732726,
-    "ast_hash": "e77d6528850fb8102abfa56ec82f7b58",
+    "mtime": 1792924891.7810094,
+    "seen": 1792925009.911922,
+    "ast_hash": "0af2a5d2922ddbe61bda9663ee285d10",
     "semantic_hash": ""
   },
   "src/lib/todos.ts": {
@@ -1842,9 +1842,9 @@
     "semantic_hash": ""
   },
   "src/components/VillageMap.tsx": {
-    "mtime": 1792429009.6268077,
-    "seen": 1792429050.824957,
-    "ast_hash": "65fa13cf1ff26a9a587496f6d691feca",
+    "mtime": 1792693067.186662,
+    "seen": 1792693173.379016,
+    "ast_hash": "7de311c71426fb41ddb68cb370966043",
     "semantic_hash": ""
   },
   "src/app/api/village/route.ts": {
@@ -1854,15 +1854,45 @@
     "semantic_hash": ""
   },
   "src/components/villageItems.ts": {
-    "mtime": 1792421603.3648815,
-    "seen": 1792426590.897151,
-    "ast_hash": "fbd64db1c2fcaee34d14ea32d8275ce8",
+    "mtime": 1792692754.223946,
+    "seen": 1792693173.38043,
+    "ast_hash": "2cab4f28365c0a807acf425153c3f6bd",
     "semantic_hash": ""
   },
   "src/lib/autoDrafts.ts": {
-    "mtime": 1792566175.7246528,
-    "seen": 1792566468.941571,
-    "ast_hash": "1e367daf8a906ae16fe42dcbc97cc132",
+    "mtime": 1792924929.9391112,
+    "seen": 1792925009.899719,
+    "ast_hash": "7fecec608e664e599fb82d80d3fb5865",
+    "semantic_hash": ""
+  },
+  "scripts/village-animals.py": {
+    "mtime": 1792681515.6240768,
+    "seen": 1792681549.904129,
+    "ast_hash": "0bb28daef0fb4c0fda20f90a1b3048fc",
+    "semantic_hash": ""
+  },
+  "scripts/village-plants.py": {
+    "mtime": 1792691426.1707973,
+    "seen": 1792691518.695271,
+    "ast_hash": "dbd95a9c9705fdb5df139a058b0a77cc",
+    "semantic_hash": ""
+  },
+  "src/app/api/mail/reply-attachments/route.ts": {
+    "mtime": 1792925193.737091,
+    "seen": 1792925260.252762,
+    "ast_hash": "d6c5bb17f88e0d5eced530265077e524",
+    "semantic_hash": ""
+  },
+  "src/components/ReplyAttachmentSettings.tsx": {
+    "mtime": 1792924927.4083946,
+    "seen": 1792925009.896855,
+    "ast_hash": "1304612f1de3b662b0b64b39f2d8f0a8",
+    "semantic_hash": ""
+  },
+  "src/lib/replyAttachments.ts": {
+    "mtime": 1792925193.7366972,
+    "seen": 1792925260.263957,
+    "ast_hash": "499c14f3f693e07fdd9a12300746a4a5",
     "semantic_hash": ""
   }
 }

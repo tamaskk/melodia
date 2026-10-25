@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useMailMode } from "@/lib/useMailMode";
+import ReplyAttachmentSettings from "./ReplyAttachmentSettings";
 import {
   useSearchProvider,
   type SearchProviderChoice,
@@ -345,6 +346,8 @@ export default function AppNav() {
                   visz.
                 </p>
               </fieldset>
+
+              <ReplyAttachmentSettings />
 
               <button
                 type="button"
