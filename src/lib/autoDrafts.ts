@@ -21,6 +21,7 @@ import {
 import { createLogger } from "./logger";
 import { listThreads } from "./mailStore";
 import { getDb } from "./mongodb";
+import { isSender } from "./role";
 import { composeThreadReply, threadsInReplyQueue } from "./threadReplies";
 
 const log = createLogger("autopiszkozat");
@@ -384,10 +385,15 @@ async function writeOne(thread: Thread, runAt: string): Promise<boolean> {
  * A lekérés végét várja meg; a piszkozatok a háttérben, egyesével készülnek.
  */
 export async function triggerAutoDrafts(): Promise<Found> {
-  // Csak piszkozatot ír, nem küld — bármelyik saját gépen futhat; a
-  // foglalás (lásd fent) miatt két gép sem ír ugyanarra a levélre.
+  // Csak piszkozatot ír, nem küld. A küldő gépen nem fut: ott nincs a helyi
+  // LLM, a válaszokat a néző gép írja.
   if (process.env.VERCEL) {
     throw new Error("A telepített példányon nincs lekérés.");
+  }
+  if (isSender()) {
+    throw new Error(
+      "A küldő gépen nincs lekérés — a válaszokat a helyi LLM-es gép írja.",
+    );
   }
   if (!isInboxReady()) throw new Error("Nincs Gmail-hozzáférés a lekéréshez.");
   if (await isPaused()) {
@@ -411,7 +417,7 @@ export async function triggerAutoDrafts(): Promise<Found> {
 
 /** Tíz percenként egy kör, az első két perccel az indulás után. */
 export function startAutoDrafts(): boolean {
-  if (process.env.VERCEL || !isInboxReady()) return false;
+  if (process.env.VERCEL || isSender() || !isInboxReady()) return false;
   if (work.__melodiaAutoDrafts) return true;
   const tick = () => void triggerAutoDrafts().catch(() => undefined);
   work.__melodiaAutoDrafts = setInterval(tick, EVERY_MS);
