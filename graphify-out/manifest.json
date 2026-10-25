@@ -1680,10 +1680,10 @@
     "semantic_hash": "01e8142356e15c3404e0d84c48187cd0"
   },
   "CLAUDE.md": {
-    "mtime": 1792274814.9892836,
-    "seen": 1792274940.0040572,
-    "ast_hash": "97d7e4c753acb32d7964dd965d4b71bf",
-    "semantic_hash": "97d7e4c753acb32d7964dd965d4b71bf"
+    "mtime": 1792928428.0388415,
+    "seen": 1792939410.045354,
+    "ast_hash": "afbc049a826aa88f3be29a3b6c9d7cd0",
+    "semantic_hash": ""
   },
   "README.md": {
     "mtime": 1791459524.1570995,
@@ -1860,9 +1860,9 @@
     "semantic_hash": ""
   },
   "src/lib/autoDrafts.ts": {
-    "mtime": 1792924929.9391112,
-    "seen": 1792925009.899719,
-    "ast_hash": "7fecec608e664e599fb82d80d3fb5865",
+    "mtime": 1792939391.1059382,
+    "seen": 1792939410.040809,
+    "ast_hash": "2a6bcc488c2096f0622b21ae400ad541",
     "semantic_hash": ""
   },
   "scripts/village-animals.py": {
@@ -1893,6 +1893,30 @@
     "mtime": 1792925193.7366972,
     "seen": 1792925260.263957,
     "ast_hash": "499c14f3f693e07fdd9a12300746a4a5",
+    "semantic_hash": ""
+  },
+  "attachments/MUNK\u00c1LTAT\u00d3I AJ\u00c1NL\u00c1S.pdf": {
+    "mtime": 1787326046.9677866,
+    "seen": 1792939410.0458639,
+    "ast_hash": "566fa605711a1c093177b9bcdf124c6a",
+    "semantic_hash": ""
+  },
+  "attachments/en/Letter_of_Recommendation_Tamas_Kalman_EN.pdf": {
+    "mtime": 1787326034.6721377,
+    "seen": 1792939410.045866,
+    "ast_hash": "84136f9229b91ae2419f2ed2a385d1af",
+    "semantic_hash": ""
+  },
+  "attachments/en/Tamas_Krisztian_Kalman_introduce.pdf": {
+    "mtime": 1792929165.7272534,
+    "seen": 1792939410.045868,
+    "ast_hash": "eb282e3a42f1cff500918f0697751fca",
+    "semantic_hash": ""
+  },
+  "attachments/hu/Kalman_Tamas_Krisztian_bemutatkozo.pdf": {
+    "mtime": 1792929165.1541762,
+    "seen": 1792939410.045869,
+    "ast_hash": "d3045232d4530ae1ca58370918a3fb3a",
     "semantic_hash": ""
   }
 }

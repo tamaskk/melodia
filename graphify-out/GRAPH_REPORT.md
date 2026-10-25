@@ -1,17 +1,17 @@
 # Graph Report - melodia  (2026-10-25)
 
 ## Corpus Check
-- 310 files · ~1,507,717 words
+- 310 files · ~1,507,753 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 6 file(s) not represented in the graph (top: (none) 4, .ico 1, .css 1)
 
 ## Summary
-- 2696 nodes · 7210 edges · 126 communities (117 shown, 9 thin omitted)
+- 2696 nodes · 7214 edges · 120 communities (111 shown, 9 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 96 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8931651c`
+- Built from commit: `2e84b5bc`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -20,7 +20,7 @@
 - AppNav.tsx
 - jobs/types.ts
 - botApi.ts
-- replyAttachments.ts
+- attachmentIndex.ts
 - Scheduled Thread Replies
 - normalize.ts
 - next
@@ -51,9 +51,9 @@
 - http.ts
 - Careers Scraper
 - themuse.ts
-- recipients.ts
+- credential
 - fourdayweek.ts
-- thread/route.ts
+- csvImport.ts
 - Seed Import UI
 - enrich/route.ts
 - Lint Config
@@ -61,20 +61,20 @@
 - widgetQueues.ts
 - emailFinderCodex.ts
 - history.ts
-- importSchema.ts
+- enrich.ts
 - TS Config
 - Harness Rules & Skills
 - stripHtml
 - jevWebSweep.ts
 - Agent Glossary & Setup
-- getAccount
+- importSchema.ts
 - peopleFinderOpenAi.ts
 - Dashboard.tsx
 - MailApp.tsx
 - replyLlm.ts
-- send-campaign/route.ts
+- ConvertPanel
 - HARNESS.md
-- getContacts
+- replyTriage.ts
 - ImportPanel.tsx
 - countries.ts
 - jev.ts
@@ -89,17 +89,15 @@
 - village-plants.py
 - Claude Settings Hooks
 - NPM Scripts
-- loadStoredAccounts
+- threadCompose.ts
 - Harness & ADRs
 - Audit Findings
 - README Features
 - board.ts
 - score.ts
-- isInboxReady
 - lib/types.ts
 - queueStats.ts
 - Bot & Company API Docs
-- lib/profile.ts
 - emailFinderCodex.ts
 - sendWindow.ts
 - importStream.worker.ts
@@ -110,7 +108,6 @@
 - New feature: $ARGUMENTS
 - add-source-segment.js
 - openai.ts
-- Deploy: $ARGUMENTS
 - usage.ts
 - Gate-Stop Hook
 - Guard-Bash Hook
@@ -123,11 +120,9 @@
 - PRD: [Product name]
 - Architecture: [Product name]
 - ashby.ts
-- createLogger
 - mailCollection
 - VillageMap
 - Security: [Product name]
-- warmup.ts
 - Claude Code guide: [Product name]
 - VillageMap.tsx
 - HistoryPanel.tsx
@@ -138,7 +133,6 @@
 - contacts.ts
 - roofed
 - interviewBrief.ts
-- convert.ts
 - places/route.ts
 - layout
 - frame
@@ -178,11 +172,11 @@
 - **Harness rétegei (CLAUDE.md, alkönyvtári CLAUDE.md, skillek, hookok, subagentek, permissionök, MCP)** — docs_harness_claude_md_contract, docs_harness_subdir_claude_md, docs_harness_skills, docs_harness_hooks, docs_harness_subagents, docs_harness_permissions, docs_harness_no_mcp [EXTRACTED 1.00]
 - **Per-layer subdirectory CLAUDE.md rules (api, components, lib)** — src_app_api_claude_route_rules, src_components_claude_component_rules, src_lib_claude_lib_rules [EXTRACTED 1.00]
 
-## Communities (126 total, 9 thin omitted)
+## Communities (120 total, 9 thin omitted)
 
 ### Community 0 - "autoSchedule.ts"
-Cohesion: 0.22
-Nodes (15): dynamic, GET(), maxDuration, POST(), applyAutoSchedule(), AutoQueue, AutoScheduleInput, leadIds() (+7 more)
+Cohesion: 0.14
+Nodes (32): dynamic, GET(), maxDuration, POST(), applyAutoSchedule(), AutoQueue, AutoScheduleInput, leadIds() (+24 more)
 
 ### Community 1 - "AppNav.tsx"
 Cohesion: 0.13
@@ -193,16 +187,16 @@ Cohesion: 0.08
 Nodes (31): dynamic, GET(), maxDuration, dynamic, GET(), ALERT_AFTER, Entry, healthOf() (+23 more)
 
 ### Community 3 - "botApi.ts"
-Cohesion: 0.13
-Nodes (20): dynamic, GET(), handle(), POST(), dynamic, POST(), dynamic, maxDuration (+12 more)
+Cohesion: 0.15
+Nodes (18): mongodb, dynamic, GET(), handle(), POST(), dynamic, POST(), filtersFromParams() (+10 more)
 
-### Community 4 - "replyAttachments.ts"
+### Community 4 - "attachmentIndex.ts"
 Cohesion: 0.16
-Nodes (21): dynamic, GET(), POST(), LANGUAGES, AttachmentChoice, AttachmentList, availableAttachments(), IndexDoc (+13 more)
+Nodes (14): register(), AttachmentList, IndexDoc, localAttachments(), log, publishAttachments(), state(), log (+6 more)
 
 ### Community 5 - "Scheduled Thread Replies"
-Cohesion: 0.10
-Nodes (49): dynamic, GET(), POST(), strings(), register(), recordSendFailure(), isReplyLlmReady(), claimSender() (+41 more)
+Cohesion: 0.08
+Nodes (57): dynamic, GET(), POST(), strings(), Data, Item, MODES, STATUS_STYLE (+49 more)
 
 ### Community 6 - "normalize.ts"
 Cohesion: 0.12
@@ -221,12 +215,12 @@ Cohesion: 0.21
 Nodes (15): demoJobs(), dynamic, forCards(), GET(), maxDuration, PASSTHROUGH, formatSalary(), JobAssistPage (+7 more)
 
 ### Community 10 - "logger.ts"
-Cohesion: 0.11
-Nodes (25): 1. Preconditions (stop on any failure), dynamic, GET(), maxDuration, DebugPage(), LEVELS, metadata, DebugConsole() (+17 more)
+Cohesion: 0.09
+Nodes (30): 1. Preconditions (stop on any failure), 2. Quality gate, 3. Deploy, 4. Verify, 5. If something is wrong, Deploy: $ARGUMENTS, dynamic, GET() (+22 more)
 
 ### Community 11 - "accounts.ts"
-Cohesion: 0.09
-Nodes (49): DELETE(), dynamic, GET(), PATCH(), POST(), startFrom(), dynamic, metadata (+41 more)
+Cohesion: 0.07
+Nodes (59): DELETE(), dynamic, GET(), PATCH(), POST(), startFrom(), dynamic, metadata (+51 more)
 
 ### Community 12 - "JobAssistPanel.tsx"
 Cohesion: 0.13
@@ -237,12 +231,12 @@ Cohesion: 0.07
 Nodes (44): Entry, getCached(), getStamp(), setCached(), store, touchCached(), isAlerting(), guessCountry() (+36 more)
 
 ### Community 14 - "getContacts"
-Cohesion: 0.11
-Nodes (29): main(), main(), dynamic, maxDuration, POST(), POST(), dynamic, POST() (+21 more)
+Cohesion: 0.10
+Nodes (40): main(), main(), main(), main(), ALL, APPLY, longer(), main() (+32 more)
 
 ### Community 15 - "Seedtable Import"
-Cohesion: 0.08
-Nodes (36): dynamic, GET(), maxDuration, POST(), call(), cleanFilters(), COMPANY_FILTERS, FilterKind (+28 more)
+Cohesion: 0.09
+Nodes (35): dynamic, GET(), maxDuration, POST(), call(), cleanFilters(), COMPANY_FILTERS, FilterKind (+27 more)
 
 ### Community 16 - "peopleSweep.ts"
 Cohesion: 0.18
@@ -250,51 +244,51 @@ Nodes (16): dynamic, GET(), log, POST(), cliConcurrency(), hasFilters(), loadQue
 
 ### Community 17 - "sendQueues.ts"
 Cohesion: 0.11
-Nodes (51): dynamic, POST(), dynamic, GET(), dayKey(), dayKeys(), isWeekend(), noon() (+43 more)
+Nodes (44): GET(), dynamic, GET(), POST(), GET(), DELETE(), dynamic, GET() (+36 more)
 
 ### Community 18 - "QueuesPanel.tsx"
 Cohesion: 0.12
 Nodes (27): Account, Attachment, AutoSchedulePanel(), Lead, limitNote(), longDay(), byDay(), dayLabel() (+19 more)
 
 ### Community 19 - "createLogger"
-Cohesion: 0.14
-Nodes (21): nextConfig, next, dynamic, POST(), dynamic, GET(), log, POST() (+13 more)
+Cohesion: 0.16
+Nodes (20): nextConfig, next, dynamic, POST(), dynamic, maxDuration, POST(), dynamic (+12 more)
 
 ### Community 20 - "parse-pdfs.ts"
 Cohesion: 0.10
-Nodes (31): pdfjs-dist, baseCompany(), classify(), classifyLinks(), cleanLines(), dedupeKey(), FILES, FOOTER_FRAGMENTS (+23 more)
+Nodes (32): pdf-parse, pdfjs-dist, baseCompany(), classify(), classifyLinks(), cleanLines(), dedupeKey(), FILES (+24 more)
 
 ### Community 21 - "emailFinder.ts"
-Cohesion: 0.10
-Nodes (40): BATCH_RULES, BatchFinding, buildBatchPrompt(), buildPrompt(), callResponses(), callResponsesRaw(), contactBrief(), EmailCandidate (+32 more)
+Cohesion: 0.09
+Nodes (42): availableProviders(), BATCH_RULES, BatchFinding, buildBatchPrompt(), buildPrompt(), callResponses(), callResponsesRaw(), contactBrief() (+34 more)
 
 ### Community 22 - "jooble.ts"
 Cohesion: 0.08
 Nodes (33): CURRENCIES, extractNumbers(), ParsedSalary, parseHungarianSalary(), PERIODS, collection(), log, QuotaConfig (+25 more)
 
 ### Community 23 - "templates.ts"
-Cohesion: 0.14
-Nodes (21): dynamic, LANGUAGE_LABEL, POST(), setLanguage(), PreviewRow, Result, getContactById(), countryName() (+13 more)
+Cohesion: 0.16
+Nodes (16): PreviewRow, Result, countryName(), DEFAULT_CONNECTION_HU, DEFAULT_LINKEDIN_HU, DEFAULT_SUBJECT_HU, DEFAULT_TEMPLATE_HU, DEFAULT_TEMPLATES (+8 more)
 
 ### Community 24 - "sendCampaign.ts"
-Cohesion: 0.10
-Nodes (35): MailAccount, listContactIds(), isFollowUpDue(), mailerConfig, sendAlertEmail(), firstOutgoingFrom(), originalOutgoing(), countriesFor() (+27 more)
+Cohesion: 0.06
+Nodes (80): dynamic, log, POST(), listContactIds(), ago(), DraftInput, FOLLOW_UP_AFTER_DAYS, followUpDraft() (+72 more)
 
 ### Community 25 - "export.ts"
 Cohesion: 0.25
 Nodes (13): ExportBar(), FORMATS, buildExport(), COLUMNS, csvCell(), ExportFormat, ExportScope, place() (+5 more)
 
 ### Community 26 - "inbox.ts"
-Cohesion: 0.13
-Nodes (27): addressList(), appendDraft(), connect(), ContactHit, domainOf(), download(), draftByMessageId(), draftsPresent() (+19 more)
+Cohesion: 0.10
+Nodes (37): dynamic, GET(), POST(), releaseDeleted(), addressList(), appendDraft(), connect(), ContactHit (+29 more)
 
 ### Community 27 - "JobsPanel.tsx"
 Cohesion: 0.15
 Nodes (19): JobsPage(), metadata, JobCard(), Board, COUNTRIES, JobsPanel(), runBadge(), SearchResult (+11 more)
 
 ### Community 28 - "credential"
-Cohesion: 0.12
-Nodes (26): dynamic, log, POST(), authorised(), dynamic, maxDuration, POST(), dynamic (+18 more)
+Cohesion: 0.18
+Nodes (20): dynamic, log, POST(), dynamic, LoginPage(), metadata, authMode, checkLogin() (+12 more)
 
 ### Community 29 - "villageItems.ts"
 Cohesion: 0.08
@@ -302,11 +296,11 @@ Nodes (27): BIOME_OF, BiomeKey, BIOMES, Bounds, BY_KEY, drawItems(), drawMarker(
 
 ### Community 30 - "mailStore.ts"
 Cohesion: 0.12
-Nodes (25): dynamic, POST(), applyFilters(), dailyCounts(), DailyPoint, dayActivity(), DayRow, listThreads() (+17 more)
+Nodes (24): dynamic, POST(), applyFilters(), dailyCounts(), DailyPoint, dayActivity(), DayRow, listThreads() (+16 more)
 
 ### Community 31 - "ConvertPanel.tsx"
-Cohesion: 0.17
-Nodes (16): ConvertPage(), metadata, ConvertPanel(), ConvertResponse, PRIORITY_STYLE, Classification, ConvertOptions, ConvertResult (+8 more)
+Cohesion: 0.22
+Nodes (16): ConvertResponse, PRIORITY_STYLE, parseCsvTable(), convertCsv(), ConvertOptions, ConvertResult, norm(), parseEmailMap() (+8 more)
 
 ### Community 32 - "http.ts"
 Cohesion: 0.13
@@ -320,17 +314,17 @@ Nodes (22): baseDomain(), careerLinks(), CareersResult, CareersRunState, careers
 Cohesion: 0.17
 Nodes (14): jobsEnv(), eligibleCountries(), queryMatrix, configuredLocales(), configuredLocations(), isRemoteLocation(), log, matchesLocation() (+6 more)
 
-### Community 35 - "recipients.ts"
-Cohesion: 0.13
-Nodes (27): hasBlocking(), IssueInfo, IssueLevel, ISSUES, issuesFor(), PreflightRow, PreflightSummary, summarize() (+19 more)
+### Community 35 - "credential"
+Cohesion: 0.16
+Nodes (14): authorised(), dynamic, maxDuration, POST(), MAX_COMPANIES, readCompanies(), CONTACTS_COLLECTION, credential() (+6 more)
 
 ### Community 36 - "fourdayweek.ts"
 Cohesion: 0.20
 Nodes (13): companyFromUrl(), FdwCompany, FdwJob, FdwLocation, FdwResponse, fourdayweek, Named, namesOf() (+5 more)
 
-### Community 37 - "thread/route.ts"
-Cohesion: 0.36
-Nodes (7): dynamic, GET(), maxDuration, POST(), text(), threadDraft(), sendThreadMail()
+### Community 37 - "csvImport.ts"
+Cohesion: 0.19
+Nodes (17): buildCompanyLetter(), clean(), COLUMNS, csvToImportRows(), fixMojibake(), headerKey(), INDUSTRY_HU, industryLabel() (+9 more)
 
 ### Community 38 - "Seed Import UI"
 Cohesion: 0.08
@@ -345,24 +339,24 @@ Cohesion: 0.09
 Nodes (21): eslintConfig, name, private, version, @anthropic-ai/sdk, dotenv, eslint, eslint-config-next (+13 more)
 
 ### Community 41 - "autoDrafts.ts"
-Cohesion: 0.13
-Nodes (26): POST(), AutoDraft, autoDraftsToday(), buildMessage(), drafts(), draftThreadIds(), fetchBatch(), fetchSince() (+18 more)
+Cohesion: 0.11
+Nodes (33): dynamic, GET(), POST(), startOfToday(), getAccount(), AutoDraft, autoDraftsToday(), buildMessage() (+25 more)
 
 ### Community 42 - "widgetQueues.ts"
 Cohesion: 0.08
 Nodes (36): dynamic, GET(), NO_STORE, AccountInput, assembleWidget(), CampaignInput, dayRange(), isDayKey() (+28 more)
 
 ### Community 43 - "emailFinderCodex.ts"
-Cohesion: 0.10
-Nodes (29): acquire(), drain(), freeMemoryMb(), log, runExclusive(), setCliConcurrency(), shared, waitForMemory() (+21 more)
+Cohesion: 0.13
+Nodes (24): acquire(), drain(), findExecutable(), freeMemoryMb(), log, runExclusive(), setCliConcurrency(), shared (+16 more)
 
 ### Community 44 - "history.ts"
 Cohesion: 0.20
 Nodes (14): dynamic, GET(), log, POST(), ChangeDoc, ChangeEntry, changes(), historyFacets() (+6 more)
 
-### Community 45 - "importSchema.ts"
-Cohesion: 0.07
-Nodes (57): count(), fixFile(), main(), FileMeta, dynamic, GET(), log, POST() (+49 more)
+### Community 45 - "enrich.ts"
+Cohesion: 0.09
+Nodes (34): FileMeta, dynamic, maxDuration, POST(), dynamic, GET(), log, POST() (+26 more)
 
 ### Community 46 - "TS Config"
 Cohesion: 0.11
@@ -377,44 +371,44 @@ Cohesion: 0.13
 Nodes (24): looksRemote(), stripHtml(), BaAddress, BaJob, bajobsuche, encodeRefnr(), enrich(), HEADERS (+16 more)
 
 ### Community 49 - "jevWebSweep.ts"
-Cohesion: 0.08
-Nodes (44): dynamic, GET(), POST(), dynamic, GET(), POST(), Chip, toSizeBucket() (+36 more)
+Cohesion: 0.09
+Nodes (43): dynamic, GET(), POST(), dynamic, GET(), POST(), Chip, SweepOptions (+35 more)
 
 ### Community 50 - "Agent Glossary & Setup"
 Cohesion: 0.15
 Nodes (17): reviewer subagent (read-only diff review), AAA (Arrange-Act-Assert, one Act per test), ADR (Nygard format, docs/adr/), Advice vs law (CLAUDE.md vs hook), /anchors skill (semantic anchor glossary), Chicago School (inside-out, state verification), Irtas teszt (deletion test), London School (outside-in, interaction verification) (+9 more)
 
-### Community 51 - "getAccount"
-Cohesion: 0.36
-Nodes (9): dynamic, GET(), startOfToday(), getAccount(), inboxToday(), campaignToday(), villageSenders(), repliesToday() (+1 more)
+### Community 51 - "importSchema.ts"
+Cohesion: 0.22
+Nodes (14): count(), fixFile(), main(), KnownMatch, asArray(), asString(), ImportRow, normaliseImportRow() (+6 more)
 
 ### Community 52 - "peopleFinderOpenAi.ts"
-Cohesion: 0.15
-Nodes (23): runClaudeApiSearch(), OPENAI_MODEL, buildPeoplePrompt(), findPeople(), log, MAX_PEOPLE, normalisePeople(), PEOPLE_RULES (+15 more)
+Cohesion: 0.22
+Nodes (15): runClaudeApiSearch(), buildPeoplePrompt(), findPeople(), log, MAX_PEOPLE, normalisePeople(), PEOPLE_RULES, PeopleFinding (+7 more)
 
 ### Community 53 - "Dashboard.tsx"
 Cohesion: 0.15
 Nodes (22): BulkTemplate(), Dashboard(), EMPTY_FILTERS, RunKey, RUNS, SHORTCUTS, toQuery(), toSourceKey() (+14 more)
 
 ### Community 54 - "MailApp.tsx"
-Cohesion: 0.07
-Nodes (34): MailPage(), metadata, metadata, RejectedPage(), AccountChoice, AttachmentChoice, Bubble(), FILTERS (+26 more)
+Cohesion: 0.06
+Nodes (47): dynamic, GET(), POST(), MailPage(), metadata, metadata, RejectedPage(), AccountChoice (+39 more)
 
 ### Community 55 - "replyLlm.ts"
-Cohesion: 0.20
-Nodes (18): MailMessage, stripQuoted(), shortIntro(), assertLlmReachable(), baseUrl(), buildUserPrompt(), chat(), generateReplyDraft() (+10 more)
+Cohesion: 0.22
+Nodes (17): MailMessage, shortIntro(), assertLlmReachable(), baseUrl(), buildUserPrompt(), chat(), generateReplyDraft(), headers() (+9 more)
 
-### Community 56 - "send-campaign/route.ts"
-Cohesion: 0.19
-Nodes (18): dynamic, log, POST(), isMailerReady(), allCampaignStates(), campaigns(), campaignState, emptyState() (+10 more)
+### Community 56 - "ConvertPanel"
+Cohesion: 0.67
+Nodes (3): ConvertPage(), metadata, ConvertPanel()
 
 ### Community 57 - "HARNESS.md"
 Cohesion: 0.04
 Nodes (47): anything else (docs, configs, markdown, small files, ranged reads) -> no opinion, API, server actions and services, ask  -> risky but sometimes legitimate; a human must confirm, Bash cat/bat/less/more/nl/tac of a source file -> same two rules as Read, Claude Code: personal files, not shared, .claude/hooks/format-file.sh, .claude/hooks/graph-first.sh, .claude/hooks/session-context.sh (+39 more)
 
-### Community 58 - "getContacts"
-Cohesion: 0.09
-Nodes (37): mongodb, main(), main(), ALL, APPLY, longer(), main(), score() (+29 more)
+### Community 58 - "replyTriage.ts"
+Cohesion: 0.20
+Nodes (15): dynamic, GET(), POST(), sendFollowUpEmail(), latestReplies(), LatestReply, AiTriage, CATEGORIES (+7 more)
 
 ### Community 59 - "ImportPanel.tsx"
 Cohesion: 0.20
@@ -429,8 +423,8 @@ Cohesion: 0.22
 Nodes (13): ai, @ai-sdk/gateway, dynamic, GET(), POST(), askBoolean(), humanError(), isJevReady() (+5 more)
 
 ### Community 62 - "classify.ts"
-Cohesion: 0.26
-Nodes (13): classify(), detectLanguage(), hits(), mapSize(), HookKey, BOOST, DATA_SMELLS, LOW_FIT (+5 more)
+Cohesion: 0.22
+Nodes (16): Classification, classify(), detectLanguage(), hits(), mapSize(), HookKey, BOOST, DATA_SMELLS (+8 more)
 
 ### Community 63 - "button"
 Cohesion: 0.08
@@ -453,8 +447,8 @@ Cohesion: 0.14
 Nodes (14): dependencies, ai, @ai-sdk/gateway, @anthropic-ai/sdk, dotenv, fast-xml-parser, imapflow, mailparser (+6 more)
 
 ### Community 68 - "mailer.ts"
-Cohesion: 0.14
-Nodes (20): nodemailer, ALLOWED, AttachmentInfo, attachmentsDir(), filesIn(), listAttachments(), log, onDisk() (+12 more)
+Cohesion: 0.15
+Nodes (19): ALLOWED, AttachmentInfo, attachmentsDir(), filesIn(), listAttachments(), log, onDisk(), resolveSelection() (+11 more)
 
 ### Community 69 - "Dev Dependencies"
 Cohesion: 0.15
@@ -472,9 +466,9 @@ Nodes (10): hooks, PostToolUse, PreToolUse, SessionStart, Stop, permissions, all
 Cohesion: 0.18
 Nodes (11): scripts, backfill-aliases, build, dev, emails, lint, parse, seed (+3 more)
 
-### Community 73 - "loadStoredAccounts"
-Cohesion: 0.11
-Nodes (34): GET(), dynamic, GET(), POST(), GET(), DELETE(), GET(), Data (+26 more)
+### Community 73 - "threadCompose.ts"
+Cohesion: 0.19
+Nodes (18): dynamic, GET(), maxDuration, POST(), text(), markDraftSent(), threadDraft(), draftByMessageId() (+10 more)
 
 ### Community 74 - "Harness & ADRs"
 Cohesion: 0.24
@@ -496,33 +490,25 @@ Nodes (14): DELETE(), dynamic, failed(), GET(), PUT(), BoardDoc, collection(), i
 Cohesion: 0.14
 Nodes (5): Doc, SCORE_EXPRESSION, SCORE_RULES, ScoreRule, tags
 
-### Community 79 - "isInboxReady"
-Cohesion: 0.38
-Nodes (9): dynamic, GET(), POST(), isInboxReady(), run(), startAutoSync(), startSync(), syncState (+1 more)
-
 ### Community 80 - "lib/types.ts"
-Cohesion: 0.16
-Nodes (16): dynamic, GET(), log, POST(), buildManualPeoplePrompt(), cleanUrl(), ManualPeopleResult, parseManualPeople() (+8 more)
+Cohesion: 0.10
+Nodes (26): dynamic, LANGUAGE_LABEL, POST(), setLanguage(), dynamic, maxDuration, POST(), dynamic (+18 more)
 
 ### Community 81 - "queueStats.ts"
-Cohesion: 0.18
-Nodes (9): bump(), chain, Counters, Fields, log, QueueDailyStats, queueStats(), sweepTracker (+1 more)
+Cohesion: 0.12
+Nodes (17): cliBusy(), loadQueue(), log, processOne(), run(), sleep(), state, SweepItem (+9 more)
 
 ### Community 82 - "Bot & Company API Docs"
 Cohesion: 0.32
 Nodes (8): COMPANY_API.md - cégfelvételi API, source mező: gridleads_<üzlettípus>_<országkód>, POST /api/bot/companies, GROKBOT.md - Grokbot és Melodia integráció, GET /api/bot/next - következő cég kiadása foglalással, POST /api/bot/save - kutatási eredmény mentése, Kutatás szisztematikája (azonosítás, saját oldal, álláshirdetés, külső források, emberek, minősítés, mentés), Seedtable import (/seedimport, importDedupe)
 
-### Community 83 - "lib/profile.ts"
-Cohesion: 0.24
-Nodes (8): ago(), DraftInput, FOLLOW_UP_AFTER_DAYS, followUpDraft(), followUpDueQuery(), FULL_NAME, VARIANTS, PROFILE
-
 ### Community 84 - "emailFinderCodex.ts"
 Cohesion: 0.18
-Nodes (21): askClaude(), findExecutable(), baseTimeout(), buildPrompt(), cliCandidates(), CliResult, CliRunStats, describeEvent() (+13 more)
+Nodes (19): askClaude(), baseTimeout(), buildPrompt(), cliCandidates(), CliResult, CliRunStats, describeEvent(), findEmailWithClaudeCli() (+11 more)
 
 ### Community 85 - "sendWindow.ts"
-Cohesion: 0.29
-Nodes (9): DEFAULT_TIME_ZONE, insideWindowAt(), localParts(), nextWindowStart(), partsCache, pickRecipient(), TEST_MODE_LIMIT, TIME_ZONES (+1 more)
+Cohesion: 0.26
+Nodes (11): DEFAULT_TIME_ZONE, insideWindowAt(), localParts(), nextWindowStart(), partsCache, pickRecipient(), TEST_MODE_LIMIT, TIME_ZONES (+3 more)
 
 ### Community 86 - "importStream.worker.ts"
 Cohesion: 0.22
@@ -553,12 +539,8 @@ Cohesion: 0.18
 Nodes (6): args, counts, fs, m, path, positional
 
 ### Community 93 - "openai.ts"
-Cohesion: 0.11
-Nodes (25): dynamic, maxDuration, POST(), dynamic, metadata, QueuesPage(), ScheduledReplies(), availableProviders() (+17 more)
-
-### Community 94 - "Deploy: $ARGUMENTS"
-Cohesion: 0.40
-Nodes (5): 2. Quality gate, 3. Deploy, 4. Verify, 5. If something is wrong, Deploy: $ARGUMENTS
+Cohesion: 0.09
+Nodes (30): dynamic, maxDuration, POST(), dynamic, metadata, QueuesPage(), ScheduledReplies(), buildPrompt() (+22 more)
 
 ### Community 95 - "usage.ts"
 Cohesion: 0.28
@@ -576,13 +558,9 @@ Nodes (10): 01 System overview, 02 Tech stack, 03 Project structure, 04 Data flo
 Cohesion: 0.10
 Nodes (32): AtsVendor, COMPANIES, num(), ashby, AshbyAddress, AshbyComponent, AshbyJob, AshbySecondaryLocation (+24 more)
 
-### Community 107 - "createLogger"
-Cohesion: 0.36
-Nodes (7): dynamic, maxDuration, POST(), dynamic, POST(), createLogger(), requestId()
-
 ### Community 108 - "mailCollection"
-Cohesion: 0.44
-Nodes (8): invalidateThreadCache(), mailCollection(), saveMessages(), log, resendMessage(), ResendPage, syncResendDelivery(), syncResendSent()
+Cohesion: 0.38
+Nodes (9): firstOutgoingFrom(), invalidateThreadCache(), mailCollection(), saveMessages(), log, resendMessage(), ResendPage, syncResendDelivery() (+1 more)
 
 ### Community 109 - "VillageMap"
 Cohesion: 0.25
@@ -591,10 +569,6 @@ Nodes (9): loadItems(), previewStyle(), saveItems(), fitRows(), housesOverlap(),
 ### Community 110 - "Security: [Product name]"
 Cohesion: 0.25
 Nodes (8): 01 What we protect, 02 Trust boundaries, 03 Authentication and authorization, 04 Secrets, 05 Input, output, injection, 06 Dependencies, 07 Incident basics, Security: [Product name]
-
-### Community 111 - "warmup.ts"
-Cohesion: 0.44
-Nodes (8): currentIndex(), MAX_STEPS, stepLabel(), stepsFor(), WARMUP_STEPS, warmupCap(), warmupLabel(), warmupStatus
 
 ### Community 112 - "Claude Code guide: [Product name]"
 Cohesion: 0.33
@@ -621,20 +595,16 @@ Cohesion: 0.19
 Nodes (17): fast-xml-parser, getText(), asArray(), joinDescriptions(), parseFeed(), parser, personio, PersonioDescription (+9 more)
 
 ### Community 119 - "contacts.ts"
-Cohesion: 0.08
-Nodes (46): findMatches(), main(), normalise(), readInput(), GET(), DELETE(), dynamic, PATCH() (+38 more)
+Cohesion: 0.07
+Nodes (50): findMatches(), main(), normalise(), readInput(), dynamic, GET(), POST(), DELETE() (+42 more)
 
 ### Community 120 - "roofed"
 Cohesion: 0.33
 Nodes (6): hslToRgb(), rgbToHsl(), roofed(), draw(), rng(), sandSheet()
 
 ### Community 121 - "interviewBrief.ts"
-Cohesion: 0.43
-Nodes (5): dynamic, POST(), createInterviewBrief(), InterviewBrief, conversation()
-
-### Community 122 - "convert.ts"
-Cohesion: 0.52
-Nodes (6): parseCsvTable(), convertCsv(), norm(), parseEmailMap(), toHunterRows(), RFC-4180
+Cohesion: 0.24
+Nodes (8): dynamic, POST(), createInterviewBrief(), InterviewBrief, conversation(), FULL_NAME, VARIANTS, PROFILE
 
 ### Community 124 - "places/route.ts"
 Cohesion: 0.33
@@ -656,17 +626,17 @@ Nodes (9): actMs(), along(), deliverFetch(), envelope(), fetchReturn(), figure()
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `next` connect `createLogger` to `autoSchedule.ts`, `AppNav.tsx`, `jobs/types.ts`, `botApi.ts`, `replyAttachments.ts`, `Scheduled Thread Replies`, `next`, `Contact Table & Messages`, `jobassist/route.ts`, `logger.ts`, `accounts.ts`, `getContacts`, `Seedtable Import`, `peopleSweep.ts`, `sendQueues.ts`, `QueuesPanel.tsx`, `templates.ts`, `credential`, `mailStore.ts`, `ConvertPanel.tsx`, `thread/route.ts`, `Seed Import UI`, `enrich/route.ts`, `Lint Config`, `widgetQueues.ts`, `history.ts`, `importSchema.ts`, `jevWebSweep.ts`, `getAccount`, `MailApp.tsx`, `send-campaign/route.ts`, `getContacts`, `ImportPanel.tsx`, `jev.ts`, `button`, `loadStoredAccounts`, `board.ts`, `isInboxReady`, `lib/types.ts`, `openai.ts`, `usage.ts`, `createLogger`, `contacts.ts`, `interviewBrief.ts`, `places/route.ts`?**
-  _High betweenness centrality (0.139) - this node is a cross-community bridge._
+- **Why does `next` connect `createLogger` to `autoSchedule.ts`, `AppNav.tsx`, `jobs/types.ts`, `botApi.ts`, `Scheduled Thread Replies`, `next`, `Contact Table & Messages`, `jobassist/route.ts`, `logger.ts`, `accounts.ts`, `getContacts`, `Seedtable Import`, `peopleSweep.ts`, `sendQueues.ts`, `QueuesPanel.tsx`, `sendCampaign.ts`, `inbox.ts`, `credential`, `mailStore.ts`, `ConvertPanel.tsx`, `credential`, `Seed Import UI`, `enrich/route.ts`, `Lint Config`, `autoDrafts.ts`, `widgetQueues.ts`, `history.ts`, `enrich.ts`, `jevWebSweep.ts`, `MailApp.tsx`, `replyTriage.ts`, `ImportPanel.tsx`, `jev.ts`, `button`, `threadCompose.ts`, `board.ts`, `lib/types.ts`, `openai.ts`, `usage.ts`, `contacts.ts`, `interviewBrief.ts`, `places/route.ts`?**
+  _High betweenness centrality (0.140) - this node is a cross-community bridge._
 - **What connects `@types/nodemailer`, `dotenv`, `react-dom` to the rest of the system?**
   _42 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `autoSchedule.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.1361344537815126 - nodes in this community are weakly interconnected._
+- **Why does `react` connect `next` to `AppNav.tsx`, `Scheduled Thread Replies`, `Contact Table & Messages`, `logger.ts`, `JobAssistPanel.tsx`, `QueuesPanel.tsx`, `templates.ts`, `export.ts`, `JobsPanel.tsx`, `villageItems.ts`, `ConvertPanel.tsx`, `Seed Import UI`, `enrich/route.ts`, `Lint Config`, `Dashboard.tsx`, `MailApp.tsx`, `ImportPanel.tsx`, `button`, `Usage Panel`, `data/index.ts`, `VillageMap.tsx`, `HistoryPanel.tsx`?**
+  _High betweenness centrality (0.110) - this node is a cross-community bridge._
 - **Should `AppNav.tsx` be split into smaller, more focused modules?**
   _Cohesion score 0.12554112554112554 - nodes in this community are weakly interconnected._
-- **Why does `react` connect `next` to `AppNav.tsx`, `replyAttachments.ts`, `Contact Table & Messages`, `logger.ts`, `JobAssistPanel.tsx`, `QueuesPanel.tsx`, `templates.ts`, `export.ts`, `JobsPanel.tsx`, `villageItems.ts`, `ConvertPanel.tsx`, `Seed Import UI`, `enrich/route.ts`, `Lint Config`, `Dashboard.tsx`, `MailApp.tsx`, `ImportPanel.tsx`, `button`, `Usage Panel`, `data/index.ts`, `loadStoredAccounts`, `VillageMap.tsx`, `HistoryPanel.tsx`?**
-  _High betweenness centrality (0.110) - this node is a cross-community bridge._
-- **Should `jobs/types.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.07804878048780488 - nodes in this community are weakly interconnected._
 - **Why does `Code style` connect `layout` to `HARNESS.md`, `ImportPanel.tsx`?**
   _High betweenness centrality (0.064) - this node is a cross-community bridge._
-- **Should `botApi.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.12681159420289856 - nodes in this community are weakly interconnected._
+- **Should `jobs/types.ts` be split into smaller, more focused modules?**
+  _Cohesion score 0.07804878048780488 - nodes in this community are weakly interconnected._
