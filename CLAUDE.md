@@ -23,8 +23,9 @@ lint és a tényleges kimenet (parancs + válasz, képernyőkép, API-válasz).
 
 - Titkok **kizárólag** az `atlas-credentials.env`-ben. Nem `.env`, nem kód,
   nem README. A hook blokkolja a szerkesztésüket.
-- Az `attachments/` személyes dokumentum (CV, ajánlólevél) — nem verziókövetett,
-  nem szerkeszthető, nem másolható máshova.
+- Az `attachments/` személyes dokumentum (CV, ajánlólevél) — a gépek közti
+  szinkron miatt verziókövetett (a repó nyilvános!), de nem szerkeszthető, nem
+  másolható máshova.
 - MongoDB Atlas M0: **a hálózat a szűk keresztmetszet** (~100 KB/s). Minden
   lekérdezés lapozzon vagy összegezzen a szerveren; sose húzz át listát azért,
   hogy itt számold meg.
@@ -77,6 +78,7 @@ azt a jelentést kérem, nem körülírást. Részletek: `/anchors`.
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
 Rules:
+
 - When graphify-out/graph.json exists, run `graphify query "<question>"` before your first grep, search or source-file read for a codebase question, and put this rule in every subagent prompt that explores code. Read raw files only for lines the graph or an earlier read already located. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
 - If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
 - Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
