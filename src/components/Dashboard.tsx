@@ -429,6 +429,19 @@ export default function Dashboard({
   // A szerver már a megfelelő oldalt küldi — itt nincs mit szeletelni.
   const currentPage = Math.min(page, pageCount - 1);
   const visible = contacts;
+  /** A nyitott cég helye a listában — a panel ‹ › gombjaihoz. */
+  const openIndex = openContactId
+    ? visible.findIndex((row) => row._id === openContactId)
+    : -1;
+  const stepContact = (direction: 1 | -1) => {
+    const next = visible[openIndex + direction];
+    if (openIndex === -1 || !next) return;
+    setCursor(openIndex + direction);
+    setOpenContactId(next._id);
+    document
+      .querySelector(`[data-row-id="${next._id}"]`)
+      ?.scrollIntoView({ block: "nearest" });
+  };
 
   // Billentyűzetes átnézés: j/k lép, Enter nyit, x jelöl, d kész, / keres.
   // A kurzor indexe az oldalon belül; lapváltás után a lista végére szorítjuk.
@@ -459,8 +472,17 @@ export default function Dashboard({
         if (openContactId) setOpenContactId(row._id);
       };
       const current = cursorIndex === null ? null : visible[cursorIndex];
+      // Nyitott panelnél a nyilak a szomszéd céget nyitják meg.
+      const openIndex = openContactId
+        ? visible.findIndex((row) => row._id === openContactId)
+        : -1;
 
       switch (event.key) {
+        case "ArrowRight":
+        case "ArrowLeft":
+          if (openIndex === -1) return;
+          focusRow(openIndex + (event.key === "ArrowRight" ? 1 : -1));
+          break;
         case "j":
           focusRow(
             cursorIndex === null
@@ -984,6 +1006,12 @@ export default function Dashboard({
       <MessagePanel
         contact={openContact}
         onClose={() => setOpenContactId(null)}
+        onPrev={openIndex > 0 ? () => stepContact(-1) : undefined}
+        onNext={
+          openIndex !== -1 && openIndex < visible.length - 1
+            ? () => stepContact(1)
+            : undefined
+        }
         onPatch={patch}
         aiEnabled={aiEnabled}
         emailSearchEnabled={emailSearchEnabled}

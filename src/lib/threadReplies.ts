@@ -15,6 +15,7 @@
 import { ObjectId, type Collection } from "mongodb";
 import { ensureAccounts, getAccount, listAccounts } from "./accounts";
 import { availableAttachments } from "./attachmentIndex";
+import { replyAttachmentFor } from "./replyAttachments";
 import { resolveSelection } from "./attachments";
 import { getContactById } from "./contacts";
 import { createLogger } from "./logger";
@@ -36,7 +37,6 @@ import {
   APPROVABLE,
   EDITABLE,
   isNoReply,
-  LANGUAGE_ATTACHMENT,
   replySubject,
   roomToday,
   type ThreadReplyStatus,
@@ -522,15 +522,12 @@ async function styleExamples(): Promise<string[]> {
   return recent.flat().map((doc) => doc.body);
 }
 
-/** A nyelvhez tartozó bemutatkozó PDF kulcsa, ha megvan a küldő gép mappájában. */
+/** A nyelvhez a Beállításokban választott fájl kulcsa, ha megvan a küldő gép mappájában. */
 async function languageAttachment(language: string | null): Promise<string[]> {
-  const name = LANGUAGE_ATTACHMENT[language ?? ""];
-  if (!name) return [];
+  const key = await replyAttachmentFor(language);
+  if (!key) return [];
   const { files } = await availableAttachments();
-  const match =
-    files.find((file) => file.name === name && file.scope === language) ??
-    files.find((file) => file.name === name);
-  return match ? [match.key] : [];
+  return files.some((file) => file.key === key) ? [key] : [];
 }
 
 /** A piszkozat a FreeLLMAPI-val — a teljes szálból, a saját stílusmintákkal. */

@@ -49,7 +49,7 @@ async function state() {
 }
 
 /** Ennek a gépnek a mappája: minden fájl egyszer, a nyelvi almappákkal együtt. */
-async function localAttachments(): Promise<{
+export async function localAttachments(): Promise<{
   files: AttachmentChoice[];
   warning: string | null;
 }> {

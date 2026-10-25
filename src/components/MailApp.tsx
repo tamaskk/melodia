@@ -6,8 +6,8 @@ import MailChart, { type DailyPoint } from "./MailChart";
 import ScheduledReplies from "./ScheduledReplies";
 import ThreadComposer from "./ThreadComposer";
 import { formatNumber } from "@/lib/format";
+import type { ReplyAttachments } from "@/lib/replyAttachments";
 import {
-  LANGUAGE_ATTACHMENT,
   STATUS_LABELS as REPLY_LABELS,
   type ThreadReplyStatus,
 } from "@/lib/threadReplyDraft";
@@ -287,6 +287,10 @@ export default function MailApp({
   );
   const [selected, setSelected] = useState<string[]>([]);
   const [files, setFiles] = useState<AttachmentChoice[] | null>(null);
+  // Nyelvenként a Beállításokban választott csatolmány.
+  const [languageFiles, setLanguageFiles] = useState<ReplyAttachments | null>(
+    null,
+  );
   const [picked, setPicked] = useState<string[]>([]);
   const [scheduling, setScheduling] = useState(false);
   const [outcome, setOutcome] = useState<ScheduleOutcome | null>(null);
@@ -435,9 +439,10 @@ export default function MailApp({
       setFiles([]);
       void fetch("/api/mail/scheduled", { cache: "no-store" })
         .then((response) => response.json())
-        .then((data) =>
-          setFiles((data.attachments?.files ?? []) as AttachmentChoice[]),
-        )
+        .then((data) => {
+          setFiles((data.attachments?.files ?? []) as AttachmentChoice[]);
+          setLanguageFiles(data.replyAttachments ?? null);
+        })
         .catch(() => undefined);
     }
   };
@@ -686,13 +691,11 @@ export default function MailApp({
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
             <span className="text-[var(--muted)]">
               Csatolmány (ha üres, a levél nyelve dönt:{" "}
-              {Object.entries(LANGUAGE_ATTACHMENT)
-                .map(([language, name]) => {
-                  const key = `${language}/${name}`;
-                  const found = files?.some(
-                    (file) => file.key === key || file.key === name,
-                  );
-                  return `${language} → ${name}${found ? "" : " ⚠ nincs a mappában"}`;
+              {Object.entries(languageFiles ?? {})
+                .map(([language, key]) => {
+                  if (!key) return `${language} → nincs`;
+                  const found = files?.some((file) => file.key === key);
+                  return `${language} → ${key.split("/").pop()}${found ? "" : " ⚠ nincs a mappában"}`;
                 })
                 .join(", ")}
               ):

@@ -8,6 +8,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import {
+  BIOMES,
   drawItems,
   ITEMS,
   loadItems,
@@ -17,6 +18,7 @@ import {
   ROOFS,
   saveItems,
   useVillageEdits,
+  type BiomeKey,
   type PlacedItem,
   type VillageEdits,
 } from "./villageItems";
@@ -28,6 +30,18 @@ export interface VillageHouse {
 
 const T = 16; // a csomag csempemérete (px)
 const COLS = 96; // széles képernyőhöz: ~2,2 : 1, mint egy laptop böngészőablaka
+/** Az útkereső felső korlátja (csempe). */
+const MAX_WORLD = 512;
+/**
+ * A teljes világ (vászon) legfeljebb ekkora csempében: 4096×2560 px. Ennél
+ * nagyobb vásznat a böngésző már nem rajzol ki (üres zöld lesz).
+ */
+const MAX_SPAN_X = 256;
+const MAX_SPAN_Y = 160;
+/** Az útkereső sorindexe: elég széles minden világméretre. */
+const STRIDE = 4096;
+/** Díszítés blokkonként: bővítéskor a meglévő blokkok fái nem mozdulnak. */
+const CHUNK = 16;
 const B = 3; // az út szélessége csempében
 const MAIN_SCALE = 2; // a főház 2× nagyítva, 12×16 csempe
 const DIRS = [
@@ -45,9 +59,45 @@ const SPRITES = {
   decor: "/village/Outdoor decoration/Outdoor_Decor_Free.png",
   player: "/village/Player/Player.png",
   smallTree: "/village/Outdoor decoration/Oak_Tree_Small.png",
+  fence: "/village/Outdoor decoration/Fences.png",
+  water: "/village/Tiles/Water_Tile.png",
+};
+
+/**
+ * Kerítés-autotile a Fences.png 4×4-es lapjáról: szomszéd-maszk (É=1, K=2,
+ * D=4, Ny=8) → [oszlop, sor].
+ */
+const FENCE_TILES: Record<number, [number, number]> = {
+  0: [0, 3],
+  4: [0, 0],
+  5: [0, 1],
+  1: [0, 2],
+  2: [1, 0],
+  10: [2, 0],
+  8: [3, 0],
+  6: [1, 1],
+  14: [2, 1],
+  12: [3, 1],
+  7: [1, 2],
+  15: [2, 2],
+  13: [3, 2],
+  3: [1, 3],
+  11: [2, 3],
+  9: [3, 3],
 };
 
 type Sprites = Record<keyof typeof SPRITES, HTMLImageElement>;
+
+const NO_SWIM =
+  "Ez az állat nem él vízben — csak hal, polip és a kétéltűek (vidra, krokodil, víziló, béka, teknős, hattyú, kiskacsa) mehetnek bele.";
+
+const KIND_BY_KEY = new Map(ITEMS.map((item) => [item.key, item]));
+
+/** A terep-ecset választható méretei (csempe). */
+const BRUSHES = [1, 3, 5, 7, 9];
+
+/** A + / − gomb nagyítási fokozatai. */
+const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3];
 
 interface Point {
   x: number;
@@ -98,9 +148,10 @@ function findRoute(
   path: Set<string>,
   size = B,
   stepCost?: (x: number, y: number) => number,
+  cols = COLS,
 ): [number, number][] | null {
   const fits = (x: number, y: number) => {
-    if (x < 0 || y < 0 || x + size > COLS || y + size > rows) return false;
+    if (x < 0 || y < 0 || x + size > cols || y + size > rows) return false;
     for (let dy = 0; dy < size; dy++) {
       for (let dx = 0; dx < size; dx++)
         if (isBlocked(x + dx, y + dy)) return false;
@@ -117,22 +168,22 @@ function findRoute(
     (buckets[cost] ??= []).push(state);
   };
   if (!fits(startX, startY)) return null;
-  push((startY * COLS + startX) * 4 + 1, 0, -1); // lefelé indul az ajtóból
+  push((startY * STRIDE + startX) * 4 + 1, 0, -1); // lefelé indul az ajtóból
 
   for (let cost = 0; cost < buckets.length; cost++) {
     for (const state of buckets[cost] ?? []) {
       if (dist.get(state) !== cost) continue;
       const dir = state % 4;
       const cell = (state - dir) / 4;
-      const x = cell % COLS;
-      const y = (cell - x) / COLS;
+      const x = cell % STRIDE;
+      const y = (cell - x) / STRIDE;
       // Teljesen a téren álljon, különben lépcsős lesz a csatlakozás széle.
       if (blockCells(x, y, size).every((key) => plaza.has(key))) {
         // Az ajtótól a térig tartó blokksor (bal felső sarkok).
         const route: [number, number][] = [];
         for (let at = state; at !== -1; at = prev.get(at) ?? -1) {
           const c = (at - (at % 4)) / 4;
-          route.unshift([c % COLS, Math.floor(c / COLS)]);
+          route.unshift([c % STRIDE, Math.floor(c / STRIDE)]);
         }
         return route;
       }
@@ -145,7 +196,7 @@ function findRoute(
           stepCost?.(nx, ny) ??
           (blockCells(nx, ny).every((key) => path.has(key)) ? 1 : 3);
         push(
-          (ny * COLS + nx) * 4 + next,
+          (ny * STRIDE + nx) * 4 + next,
           cost + step + (next === dir ? 0 : 10),
           state,
         );
@@ -165,7 +216,23 @@ function layout(houses: VillageHouse[], fit: number, edits: VillageEdits) {
   // A falu magja (főház, házak) az ablaktól független méretben áll, hogy
   // átméretezéskor ne csússzon el a rajzolt utaktól; magasabb ablakban csak lent nő a rét.
   const base = 48 + Math.max(0, houses.length - 8) * 3;
-  const rows = Math.max(fit, base);
+  // A világ: a mag (COLS széles) jobbra és lefelé bővül, ahogy görgetsz.
+  // Balra és felfelé is nő: `left` / `top` csempe van a 0. oszlop / sor előtt.
+  // A túl nagyra nőtt világot visszavágjuk: előbb a jobb/alsó, aztán a bal/felső részt.
+  const minCols = COLS + 32;
+  const minRows = Math.max(fit, base + 24);
+  let left = Math.max(0, edits.world?.left ?? 0);
+  let top = Math.max(0, edits.world?.top ?? 0);
+  const cols = Math.min(
+    Math.max(minCols, edits.world?.cols ?? 0),
+    Math.max(minCols, MAX_SPAN_X - left),
+  );
+  const rows = Math.min(
+    Math.max(minRows, edits.world?.rows ?? 0),
+    Math.max(minRows, MAX_SPAN_Y - top),
+  );
+  left = Math.max(0, Math.min(left, MAX_SPAN_X - cols));
+  top = Math.max(0, Math.min(top, MAX_SPAN_Y - rows));
   const mx = COLS / 2 - 6;
   const my = Math.floor((base - 16) / 2) - 1;
   const placed: Placed[] = [
@@ -277,7 +344,7 @@ function layout(houses: VillageHouse[], fit: number, edits: VillageEdits) {
   const labels = new Map(houses.map((house) => [house.id, house.label]));
   for (const extra of edits.extra) {
     const { x, y } = extra;
-    if (!houseFits(x, y, rows)) continue;
+    if (!houseFits(x, y, rows, cols)) continue;
     let clear = true;
     for (let dy = 0; dy < 7 && clear; dy++) {
       for (let dx = 0; dx < 6 && clear; dx++) {
@@ -294,6 +361,9 @@ function layout(houses: VillageHouse[], fit: number, edits: VillageEdits) {
         (cx >= x && cx < x + 6 && cy >= y && cy < y + 7),
       plaza,
       path,
+      B,
+      undefined,
+      cols,
     );
     block(x, y, 6, 7);
     for (const [rx, ry] of route ?? []) {
@@ -327,7 +397,30 @@ function layout(houses: VillageHouse[], fit: number, edits: VillageEdits) {
       y: my + 15.5,
     }) ?? [{ x: house.x + 2.5, y: house.y + 8.5 }];
   }
-  return { placed, path, height: rows, main: { x: mx, y: my } };
+  // Kerítés: útra és házra nem kerülhet.
+  const fences = new Set(
+    edits.fences.filter((key) => !path.has(key) && !blocked.has(key)),
+  );
+  // Festett terep: házra és útra nem kerül.
+  const biomes = new Map(
+    Object.entries(edits.biomes).filter(
+      ([key]) => !path.has(key) && !blocked.has(key),
+    ),
+  );
+  // A négylábúaknak a házak is falak (a madarak, bogarak átmehetnek).
+  const walls = new Set([...fences, ...blocked]);
+  return {
+    placed,
+    path,
+    fences,
+    walls,
+    biomes,
+    cols,
+    left,
+    top,
+    height: rows,
+    main: { x: mx, y: my },
+  };
 }
 
 /** Csak a kanyarpontok maradnak: az egyenes szakaszok közbülső pontjai kiesnek. */
@@ -368,6 +461,8 @@ function walkOnPath(
     path,
     1,
     (x, y) => (edge(x, y) ? 4 : 1),
+    // Csak útcsempén lép, a világ szélességét az út határolja.
+    MAX_WORLD,
   );
   if (!route) return undefined;
   const walk = route.map(([x, y]) => ({ x: x + 0.5, y: y + 0.5 }));
@@ -400,6 +495,8 @@ function walkBetween(
     path,
     1,
     (x, y) => (edge(x, y) ? 4 : 1),
+    // Csak útcsempén lép, a világ szélességét az út határolja.
+    MAX_WORLD,
   );
   return route
     ? corners(route.map(([x, y]) => ({ x: x + 0.5, y: y + 0.5 })))
@@ -407,8 +504,8 @@ function walkBetween(
 }
 
 /** Elfér-e itt egy ház a térképen (az ajtó előtti hellyel együtt). */
-function houseFits(x: number, y: number, rows: number): boolean {
-  return x >= 1 && x <= COLS - 7 && y >= 1 && y <= rows - 11;
+function houseFits(x: number, y: number, rows: number, cols = COLS): boolean {
+  return x >= 1 && x <= cols - 7 && y >= 1 && y <= rows - 11;
 }
 
 /** A felső sáv magassága; a szerveren a szokásos érték. */
@@ -440,14 +537,16 @@ function rng(seed: number) {
 function draw(
   canvas: HTMLCanvasElement,
   sprites: Sprites,
-  { placed, path, height }: VillageLayout,
-) {
+  { placed, path, fences, biomes, cols, left, top, height }: VillageLayout,
+): Set<string> {
   const main = placed[0];
-  canvas.width = COLS * T;
-  canvas.height = height * T;
+  canvas.width = (cols + left) * T;
+  canvas.height = (height + top) * T;
   const ctx = canvas.getContext("2d");
-  if (!ctx) return;
+  if (!ctx) return new Set();
   ctx.imageSmoothingEnabled = false;
+  // Világkoordinátában rajzolunk: a vászon bal felső sarka a (−left, −top) csempe.
+  ctx.translate(left * T, top * T);
   const tile = (
     img: HTMLImageElement,
     sx: number,
@@ -457,30 +556,114 @@ function draw(
   ) => ctx.drawImage(img, sx, sy, T, T, x * T, y * T, T, T);
   const isPath = (x: number, y: number) => path.has(`${x},${y}`);
 
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < COLS; x++) tile(sprites.grass, 0, 0, x, y);
+  for (let y = -top; y < height; y++) {
+    for (let x = -left; x < cols; x++) tile(sprites.grass, 0, 0, x, y);
   }
 
-  // Út-autotile: a felső 3×3 a külső szél, alatta a belső sarkok.
-  for (const key of path) {
+  // Autotile (út, víz): a felső 3×3 a külső szél, alatta a belső sarkok.
+  const autotile = (
+    img: HTMLImageElement,
+    keys: Iterable<string>,
+    has: (x: number, y: number) => boolean,
+  ) => {
+    for (const key of keys) {
+      const [x, y] = key.split(",").map(Number);
+      const n = has(x, y - 1);
+      const s = has(x, y + 1);
+      const w = has(x - 1, y);
+      const e = has(x + 1, y);
+      const col = !w ? 0 : !e ? 2 : 1;
+      const row = !n ? 0 : !s ? 2 : 1;
+      tile(img, col * T, row * T, x, y);
+      if (col === 1 && row === 1) {
+        if (!has(x + 1, y + 1)) tile(img, 0, 3 * T, x, y);
+        else if (!has(x - 1, y + 1)) tile(img, T, 3 * T, x, y);
+        else if (!has(x + 1, y - 1)) tile(img, 0, 4 * T, x, y);
+        else if (!has(x - 1, y - 1)) tile(img, T, 4 * T, x, y);
+      }
+    }
+  };
+
+  // Terep: homok és jég egyszínű csempe szegéllyel, a víz a csomag autotile-ja.
+  const biomeAt = (x: number, y: number) => biomes.get(`${x},${y}`);
+  // Homok: az út-lap homokszínűre festve, negyedcsempénként illesztve, hogy az
+  // egy csempe széles sáv is kerek szélű legyen — minden irányban, a víz felé is.
+  const sandy = (x: number, y: number) => biomeAt(x, y) === "sand";
+  const sand = sandSheet(sprites.path);
+  const H = T / 2;
+  for (const [key, biome] of biomes) {
+    if (biome !== "sand") continue;
     const [x, y] = key.split(",").map(Number);
-    const n = isPath(x, y - 1);
-    const s = isPath(x, y + 1);
-    const w = isPath(x - 1, y);
-    const e = isPath(x + 1, y);
-    const col = !w ? 0 : !e ? 2 : 1;
-    const row = !n ? 0 : !s ? 2 : 1;
-    tile(sprites.path, col * T, row * T, x, y);
-    if (col === 1 && row === 1) {
-      if (!isPath(x + 1, y + 1)) tile(sprites.path, 0, 3 * T, x, y);
-      else if (!isPath(x - 1, y + 1)) tile(sprites.path, T, 3 * T, x, y);
-      else if (!isPath(x + 1, y - 1)) tile(sprites.path, 0, 4 * T, x, y);
-      else if (!isPath(x - 1, y - 1)) tile(sprites.path, T, 4 * T, x, y);
+    const n = sandy(x, y - 1);
+    const s = sandy(x, y + 1);
+    const w = sandy(x - 1, y);
+    const e = sandy(x + 1, y);
+    // [negyed eltolása, oldalszomszéd, függőleges szomszéd]. Belső saroknál a
+    // negyed homok marad: a bevágást a két szomszéd (eltolt) pereme zárja le —
+    // a lap belső-sarok csempéje az eltolás miatt egy fűkockát hagyna itt.
+    const quarters: [number, number, boolean, boolean][] = [
+      [0, 0, w, n],
+      [H, 0, e, n],
+      [0, H, w, s],
+      [H, H, e, s],
+    ];
+    for (const [ox, oy, side, vertical] of quarters) {
+      const col = side ? 1 : ox ? 2 : 0;
+      const row = vertical ? 1 : oy ? 2 : 0;
+      // A szélső csempe külső fele fű: a szél felőli negyedhez a belső felét vesszük.
+      const sx = side ? ox : H - ox;
+      const sy = vertical ? oy : H - oy;
+      ctx.drawImage(
+        sand,
+        col * T + sx,
+        row * T + sy,
+        H,
+        H,
+        x * T + ox,
+        y * T + oy,
+        H,
+        H,
+      );
     }
   }
+  // Jég: egyszínű csempe csillanással, vékony szegéllyel.
+  for (const [key, biome] of biomes) {
+    if (biome !== "ice") continue;
+    const [x, y] = key.split(",").map(Number);
+    ctx.fillStyle = "#d8eef8";
+    ctx.fillRect(x * T, y * T, T, T);
+    // Pár csillanás, mindig ugyanott.
+    if ((x * 7 + y * 13) % 5 === 0) {
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(x * T + 3, y * T + 5, 6, 1);
+      ctx.fillRect(x * T + 9, y * T + 10, 4, 1);
+    }
+    ctx.fillStyle = "#9fcde3";
+    if (biomeAt(x, y - 1) !== biome) ctx.fillRect(x * T, y * T, T, 1);
+    if (biomeAt(x, y + 1) !== biome) ctx.fillRect(x * T, y * T + T - 1, T, 1);
+    if (biomeAt(x - 1, y) !== biome) ctx.fillRect(x * T, y * T, 1, T);
+    if (biomeAt(x + 1, y) !== biome) ctx.fillRect(x * T + T - 1, y * T, 1, T);
+  }
+  autotile(
+    sprites.water,
+    [...biomes].filter(([, biome]) => biome === "water").map(([key]) => key),
+    (x, y) => biomeAt(x, y) === "water",
+  );
+  autotile(sprites.path, path, isPath);
 
-  // Foglalt csempék: házak, utak és egy csempényi szegély — ide nem jön díszítés.
-  const taken = new Set(path);
+  for (const key of fences) {
+    const [x, y] = key.split(",").map(Number);
+    const mask =
+      (fences.has(`${x},${y - 1}`) ? 1 : 0) |
+      (fences.has(`${x + 1},${y}`) ? 2 : 0) |
+      (fences.has(`${x},${y + 1}`) ? 4 : 0) |
+      (fences.has(`${x - 1},${y}`) ? 8 : 0);
+    const [col, row] = FENCE_TILES[mask];
+    tile(sprites.fence, col * T, row * T, x, y);
+  }
+
+  // Foglalt csempék: házak, utak, kerítés és egy csempényi szegély — ide nem jön díszítés.
+  const taken = new Set([...path, ...fences, ...biomes.keys()]);
   for (const house of placed) {
     const size = house.main ? MAIN_SCALE : 1;
     for (let dy = -1; dy <= 8 * size; dy++) {
@@ -497,7 +680,6 @@ function draw(
     return true;
   };
 
-  const random = rng(7);
   // Fű- és virágcsomók: a díszlap első két sora és a virágsor.
   const tufts = [
     [0, 0],
@@ -512,13 +694,26 @@ function draw(
     [0, 9],
     [1, 9],
   ];
-  for (let i = 0; i < COLS * height * 0.12; i++) {
-    const x = Math.floor(random() * COLS);
-    const y = Math.floor(random() * height);
-    // A sorsolás a foglaltság előtt: így egy új úttól nem rendeződik át az egész rét.
-    const [sx, sy] = tufts[Math.floor(random() * tufts.length)];
-    if (!free(x, y, 1, 1)) continue;
-    tile(sprites.decor, sx * T, sy * T, x, y);
+  // Blokkonként saját véletlen: a világ bővülésekor a meglévő rész nem rendeződik át.
+  const chunks: { x0: number; y0: number; random: () => number }[] = [];
+  const firstX = Math.floor(-left / CHUNK) * CHUNK;
+  const firstY = Math.floor(-top / CHUNK) * CHUNK;
+  for (let y0 = firstY; y0 < height; y0 += CHUNK) {
+    for (let x0 = firstX; x0 < cols; x0 += CHUNK) {
+      // >>> 0: negatív blokknál is pozitív mag (a véletlen csak így 0..1).
+      chunks.push({ x0, y0, random: rng((7 + x0 * 7919 + y0 * 104729) >>> 0) });
+    }
+  }
+  for (const { x0, y0, random } of chunks) {
+    for (let i = 0; i < CHUNK * CHUNK * 0.12; i++) {
+      const x = x0 + Math.floor(random() * CHUNK);
+      const y = y0 + Math.floor(random() * CHUNK);
+      // A sorsolás a foglaltság előtt: így egy új úttól nem rendeződik át az egész rét.
+      const [sx, sy] = tufts[Math.floor(random() * tufts.length)];
+      if (x < -left || y < -top || x >= cols || y >= height) continue;
+      if (!free(x, y, 1, 1)) continue;
+      tile(sprites.decor, sx * T, sy * T, x, y);
+    }
   }
 
   // Lámpák a főház két oldalán.
@@ -550,26 +745,66 @@ function draw(
   // Fák a szabad helyekre: nagy (4×5) és kis (2×3) vegyesen, fentről lefelé
   // rajzolva, hogy a lentebbi takarja a fentebbit. Egymásba kicsit belóghatnak.
   const trees: [number, number, boolean][] = [];
-  const target = Math.round((COLS * height) / 40);
-  for (let i = 0; i < 4000 && trees.length < target; i++) {
-    const small = random() < 0.35;
-    const [w, h] = small ? [2, 3] : [4, 5];
-    const x = Math.floor(random() * (COLS - w));
-    const y = Math.floor(random() * (height - h)) - 1;
-    if (!free(x, Math.max(0, y + 1), w, h - 1)) continue;
-    trees.push([x, y, small]);
-    for (let dy = 1; dy < h; dy++) {
-      for (let dx = 0; dx < w; dx++) taken.add(`${x + dx},${y + dy}`);
+  for (const { x0, y0, random } of chunks) {
+    const target = Math.round((CHUNK * CHUNK) / 40);
+    let placedHere = 0;
+    for (let i = 0; i < 60 && placedHere < target; i++) {
+      const small = random() < 0.35;
+      const [w, h] = small ? [2, 3] : [4, 5];
+      const x = x0 + Math.floor(random() * CHUNK);
+      const y = y0 + Math.floor(random() * CHUNK) - 1;
+      if (x < -left || y < -top || x + w > cols || y + h > height) continue;
+      if (!free(x, Math.max(-top, y + 1), w, h - 1)) continue;
+      trees.push([x, y, small]);
+      placedHere++;
+      for (let dy = 1; dy < h; dy++) {
+        for (let dx = 0; dx < w; dx++) taken.add(`${x + dx},${y + dy}`);
+      }
     }
   }
   trees.sort((a, b) => a[1] - b[1]);
+  // A törzs és az alsó lomb csempéi: ide a négylábúak nem lépnek.
+  const trunks = new Set<string>();
   for (const [x, y, small] of trees) {
     if (small) {
       ctx.drawImage(sprites.smallTree, 32, 0, 32, 48, x * T, y * T, 32, 48);
+      for (let dy = 1; dy <= 2; dy++) {
+        for (let dx = 0; dx <= 1; dx++) trunks.add(`${x + dx},${y + dy}`);
+      }
     } else {
       ctx.drawImage(sprites.tree, x * T, y * T);
+      for (let dy = 2; dy <= 4; dy++) {
+        for (let dx = 1; dx <= 2; dx++) trunks.add(`${x + dx},${y + dy}`);
+      }
     }
   }
+  return trunks;
+}
+
+/** Út-szín → homok-szín: a homok-autotile az út lapjából készül (egyszer). */
+const SAND_COLORS: Record<string, [number, number, number]> = {
+  "228,166,114": [240, 208, 140],
+  "184,111,80": [204, 158, 98],
+};
+let sandCache: HTMLCanvasElement | null = null;
+
+function sandSheet(path: HTMLImageElement): HTMLCanvasElement {
+  if (sandCache) return sandCache;
+  const canvas = document.createElement("canvas");
+  canvas.width = path.width;
+  canvas.height = path.height;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
+  ctx.drawImage(path, 0, 0);
+  const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const color = SAND_COLORS[`${data[i]},${data[i + 1]},${data[i + 2]}`];
+    if (color) [data[i], data[i + 1], data[i + 2]] = color;
+  }
+  ctx.putImageData(image, 0, 0);
+  sandCache = canvas;
+  return canvas;
 }
 
 function load(src: string): Promise<HTMLImageElement> {
@@ -916,8 +1151,11 @@ function frame(
   letters: Letter[],
   now: number,
   underPeople: () => void,
+  /** A világ eltolása pixelben (a vászon bal felső sarka a háttér bal felső sarka). */
+  shift: Point = { x: 0, y: 0 },
 ) {
-  ctx.drawImage(background, 0, 0);
+  ctx.setTransform(1, 0, 0, 1, shift.x, shift.y);
+  ctx.drawImage(background, -shift.x, -shift.y);
   underPeople();
   const tick = (ms: number, frames: number) => Math.floor(now / ms) % frames;
 
@@ -1067,13 +1305,26 @@ type Drag =
       painted: Set<string>;
       erased: Set<string>;
     }
+  | { type: "fence"; last?: Point; erase: boolean; fences: Set<string> }
+  | {
+      type: "biome";
+      last?: Point;
+      /** null: vissza fűre. */
+      biome: BiomeKey | null;
+      biomes: Record<string, BiomeKey>;
+    }
   | { type: "click"; startX: number; startY: number }
+  /** Üres részen húzva a térkép mozog (a görgető tároló görget). */
+  | { type: "pan"; clientX: number; clientY: number; left: number; top: number }
   | {
       type: "item";
       item: PlacedItem;
       startX: number;
       startY: number;
       moved: boolean;
+      /** Ahonnan elindult — ide tér vissza, ha nem lehet oda tenni. */
+      fromX: number;
+      fromY: number;
     }
   | {
       type: "house";
@@ -1121,7 +1372,10 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
     return list;
   }, [houses, edits.order]);
   const map = useMemo(() => layout(ordered, fit, edits), [ordered, fit, edits]);
-  const { placed, height } = map;
+  const { placed, height, cols, left, top } = map;
+  /** A teljes vászon csempében, az eltolással együtt. */
+  const spanX = cols + left;
+  const spanY = height + top;
   const mapRef = useRef(map);
   const people = useRef(new Map<string, Person>());
   const senders = useRef(new Map<string, Sender>());
@@ -1133,10 +1387,179 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
     items: Map<string, HTMLImageElement>;
   } | null>(null);
   const background = useRef<HTMLCanvasElement | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  // Nagyítva indul, hogy rögtön lehessen húzni; a 100% az áttekintés.
+  const [zoom, setZoom] = useState(2);
+  const centered = useRef(false);
+  const growing = useRef(false);
+  // Nyilakkal is mozog a térkép (ha épp nem egy mezőbe gépelsz).
+  useEffect(() => {
+    const STEP = 80;
+    const moves: Record<string, [number, number]> = {
+      ArrowLeft: [-STEP, 0],
+      ArrowRight: [STEP, 0],
+      ArrowUp: [0, -STEP],
+      ArrowDown: [0, STEP],
+    };
+    const onKey = (event: KeyboardEvent) => {
+      const move = moves[event.key];
+      const target = event.target as HTMLElement | null;
+      if (
+        !move ||
+        target?.closest("input, textarea, select, [contenteditable]")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      scroller.current?.scrollBy({ left: move[0], top: move[1] });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  /** Nagyítás a következő fokozatra, úgy, hogy a látott közép maradjon középen. */
+  const zoomBy = (direction: 1 | -1) => {
+    const index = ZOOMS.indexOf(zoom);
+    const next =
+      ZOOMS[Math.min(ZOOMS.length - 1, Math.max(0, index + direction))];
+    if (next === zoom) return;
+    const box = scroller.current;
+    if (box) {
+      const cx = (box.scrollLeft + box.clientWidth / 2) / box.scrollWidth;
+      const cy = (box.scrollTop + box.clientHeight / 2) / box.scrollHeight;
+      requestAnimationFrame(() => {
+        box.scrollLeft = cx * box.scrollWidth - box.clientWidth / 2;
+        box.scrollTop = cy * box.scrollHeight - box.clientHeight / 2;
+      });
+    }
+    setZoom(next);
+  };
+
+  /**
+   * Végtelennek tűnő rét: ha a látott rész a jobb vagy az alsó széléhez ér,
+   * a világ bővül (32 oszlop / 24 sor), és a mérete mentődik.
+   */
+  const grow = () => {
+    const box = scroller.current;
+    // Egy bővítés egyszerre: amíg az új méret meg nem jelenik, a görgetés nem bővít újra.
+    if (!box || growing.current) return;
+    const edge = (size: number) => size / 3;
+    const nearLeft = box.scrollLeft < edge(box.clientWidth);
+    const nearTop = box.scrollTop < edge(box.clientHeight);
+    const nearRight =
+      box.scrollLeft + box.clientWidth >
+      box.scrollWidth - edge(box.clientWidth);
+    const nearBottom =
+      box.scrollTop + box.clientHeight >
+      box.scrollHeight - edge(box.clientHeight);
+    const roomX = Math.max(0, MAX_SPAN_X - (map.cols + map.left));
+    const roomY = Math.max(0, MAX_SPAN_Y - (map.height + map.top));
+    const addLeft = nearLeft ? Math.min(32, roomX) : 0;
+    const addTop = nearTop ? Math.min(24, roomY) : 0;
+    const world = {
+      cols: map.cols + (nearRight ? Math.min(32, roomX - addLeft) : 0),
+      rows: map.height + (nearBottom ? Math.min(24, roomY - addTop) : 0),
+      left: map.left + addLeft,
+      top: map.top + addTop,
+    };
+    if (
+      world.cols === map.cols &&
+      world.rows === map.height &&
+      !addLeft &&
+      !addTop
+    ) {
+      return;
+    }
+    // Balra/felfelé bővítéskor a vászon eleje nő: a nézetet ugyanannyival
+    // eltoljuk, hogy ne ugorjon el a kép.
+    const tileX = box.scrollWidth / (map.cols + map.left);
+    const tileY = box.scrollHeight / (map.height + map.top);
+    const shiftX = addLeft * tileX;
+    const shiftY = addTop * tileY;
+    growing.current = true;
+    saveEdits({ ...edits, world });
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        box.scrollLeft += shiftX;
+        box.scrollTop += shiftY;
+        growing.current = false;
+      }),
+    );
+  };
+
+  /** A jobb oldali állatlista: nyitva van-e, mi van benne, és ki van kijelölve. */
+  const [listOpen, setListOpen] = useState(false);
+  // Csak fajta és sorszám (`at`: hely az `items.current`-ben) — az objektum a refben marad.
+  const [animals, setAnimals] = useState<{ kind: string; at: number }[]>([]);
+  const [selected, setSelected] = useState<number | null>(null);
+  /** A kijelölés az állaton jelölőként él: a rajzoló ebből teszi ki a nyilat. */
+  const select = (at: number | null) => {
+    items.current.forEach((item, index) => {
+      item.marked = index === at;
+    });
+    setSelected(at);
+  };
+  /** A lista frissítése a lerakott elemekből (lerakás, radír, törlés után). */
+  // Nyitott listánál másodpercenként frissül (lerakás, radír, törlés után is),
+  // időzítőből, hogy az eseménykezelőknek ne kelljen tudniuk róla.
+  useEffect(() => {
+    if (!listOpen) return;
+    const refresh = () => {
+      setAnimals(
+        items.current.flatMap((item, at) =>
+          KIND_BY_KEY.get(item.kind)?.animal ? [{ kind: item.kind, at }] : [],
+        ),
+      );
+      const marked = items.current.findIndex((item) => item.marked);
+      setSelected(marked === -1 ? null : marked);
+    };
+    const first = setTimeout(refresh, 0);
+    const timer = setInterval(refresh, 1000);
+    return () => {
+      clearTimeout(first);
+      clearInterval(timer);
+    };
+  }, [listOpen]);
+  /** Kijelölés: a térképen megjelöli, ránagyít és odagörget. */
+  const focusAnimal = (at: number) => {
+    const item = items.current[at];
+    if (!item) return;
+    if (item.marked) {
+      select(null);
+      return;
+    }
+    select(at);
+    if (zoom < 2) setZoom(2);
+    // Két képkocka: előbb rendereljen az új nagyítással, aztán görgessünk.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        const box = scroller.current;
+        if (!box) return;
+        box.scrollTo({
+          left:
+            ((item.x + left) / spanX) * box.scrollWidth - box.clientWidth / 2,
+          top:
+            ((item.y + top) / spanY) * box.scrollHeight - box.clientHeight / 2,
+          behavior: "smooth",
+        });
+      }),
+    );
+  };
+  /** Kerítés és falak a képkocka-ciklusnak (az állatok ütközéséhez). */
+  const fences = useRef({
+    fences: new Set<string>(),
+    walls: new Set<string>(),
+    bounds: { minX: 1, minY: 2, maxX: COLS - 1, maxY: 47 },
+    biomes: new Map<string, BiomeKey>(),
+  });
   const drag = useRef<Drag | null>(null);
+  /** A terep-ecset előnézete a kurzor alatt (bal felső csempe és méret). */
+  const brushAt = useRef<{ x: number; y: number; size: number } | null>(null);
   const [ready, setReady] = useState(false);
   // A kiválasztott eszköz: elem kulcsa, út, radír, vagy semmi (ekkor fogni és kattintani lehet).
   const [tool, setTool] = useState<string | null>(null);
+  /** A terep-ecset mérete csempében (páratlan: a kurzor van középen). */
+  const [brush, setBrush] = useState(3);
   const frameRef = useRef<HTMLDivElement>(null);
   // Teljes képernyőn csak a térkép látszik: a panelek elrejtve.
   const [full, setFull] = useState(false);
@@ -1359,11 +1782,40 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
     const canvas = canvasRef.current;
     if (!ready || !assets.current || !canvas) return;
     const next = document.createElement("canvas");
-    draw(next, assets.current.sprites, map);
+    const trunks = draw(next, assets.current.sprites, map);
     background.current = next;
+    fences.current = {
+      fences: map.fences,
+      // A négylábúaknak a fák törzse is fal.
+      walls: new Set([...map.walls, ...trunks]),
+      biomes: map.biomes,
+      // A `fit` felfelé kerekít: az utolsó, félig látszó sorba már nem léphetnek.
+      // A világ széle (görgethető, és jobbra-lefelé nő).
+      bounds: {
+        minX: 1 - map.left,
+        minY: 2 - map.top,
+        maxX: map.cols - 1,
+        maxY: map.height - 1,
+      },
+    };
     canvas.width = next.width;
     canvas.height = next.height;
-  }, [ready, map]);
+    // Első rajzoláskor a Főhadiszállás legyen középen (nagyítva indulunk).
+    const box = scroller.current;
+    if (!centered.current && box) {
+      centered.current = true;
+      requestAnimationFrame(() => {
+        box.scrollLeft =
+          ((map.main.x + 6 + map.left) / (map.cols + map.left)) *
+            box.scrollWidth -
+          box.clientWidth / 2;
+        box.scrollTop =
+          ((map.main.y + 7 + map.top) / (map.height + map.top)) *
+            box.scrollHeight -
+          box.clientHeight / 2;
+      });
+    }
+  }, [ready, map, fit]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1404,9 +1856,30 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
       last = now;
       // A vászon átméretezése visszaállítja a simítást.
       ctx.imageSmoothingEnabled = false;
-      frame(ctx, bg, loaded.sprites.player, people.current, letters, now, () =>
-        drawItems(ctx, loaded.items, items.current, now, dt),
+      const origin = mapRef.current;
+      frame(
+        ctx,
+        bg,
+        loaded.sprites.player,
+        people.current,
+        letters,
+        now,
+        () =>
+          drawItems(ctx, loaded.items, items.current, now, dt, fences.current),
+        { x: origin.left * T, y: origin.top * T },
       );
+      // Az ecset kerete: ekkora területet fest a következő kattintás.
+      const cursor = brushAt.current;
+      if (cursor) {
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.9)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(
+          cursor.x * T + 0.5,
+          cursor.y * T + 0.5,
+          cursor.size * T - 1,
+          cursor.size * T - 1,
+        );
+      }
       // Az épp húzott ház áttetszően, a leendő helyén.
       const held = drag.current;
       if (held?.type === "house" && held.moved) {
@@ -1423,8 +1896,9 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
       for (const [id, person] of people.current) {
         const label = timers.current.get(id);
         if (!label || !person.pos) continue;
-        label.style.left = `${(person.pos.x / COLS) * 100}%`;
-        label.style.top = `${((person.pos.y + 0.5) / mapRef.current.height) * 100}%`;
+        const at = mapRef.current;
+        label.style.left = `${((person.pos.x + at.left) / (at.cols + at.left)) * 100}%`;
+        label.style.top = `${((person.pos.y + 0.5 + at.top) / (at.height + at.top)) * 100}%`;
         const stopped =
           pausedRef.current &&
           (person.kind === "fetch" || person.kind === "reply");
@@ -1491,8 +1965,8 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
   const toTile = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return {
-      x: ((event.clientX - rect.left) / rect.width) * COLS,
-      y: ((event.clientY - rect.top) / rect.height) * height,
+      x: ((event.clientX - rect.left) / rect.width) * spanX - left,
+      y: ((event.clientY - rect.top) / rect.height) * spanY - top,
     };
   };
 
@@ -1567,6 +2041,77 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
     }
   };
 
+  /**
+   * Kerítés csempénként. Átlós lépésnél egy sarokcsempét is lerak, hogy ne
+   * maradjon rés, amin egy állat átcsúszna.
+   */
+  const paintFence = (
+    held: Extract<Drag, { type: "fence" }>,
+    x: number,
+    y: number,
+  ) => {
+    let changed = false;
+    const put = (tx: number, ty: number) => {
+      const key = `${tx},${ty}`;
+      if (held.erase ? !held.fences.has(key) : held.fences.has(key)) return;
+      if (held.erase) held.fences.delete(key);
+      else held.fences.add(key);
+      changed = true;
+    };
+    const from = held.last ?? { x, y };
+    const steps = Math.max(
+      1,
+      Math.ceil(Math.hypot(x - from.x, y - from.y) * 2),
+    );
+    let prev = { x: Math.floor(from.x), y: Math.floor(from.y) };
+    for (let i = 0; i <= steps; i++) {
+      const tx = Math.floor(from.x + ((x - from.x) * i) / steps);
+      const ty = Math.floor(from.y + ((y - from.y) * i) / steps);
+      if (!held.erase && tx !== prev.x && ty !== prev.y) put(tx, prev.y);
+      put(tx, ty);
+      prev = { x: tx, y: ty };
+    }
+    held.last = { x, y };
+    if (changed) saveEdits({ ...edits, fences: [...held.fences] });
+  };
+
+  /** Lerakható-e ide: vízbe csak a vízi állat és a kétéltű kerülhet. */
+  const canStand = (kind: string, x: number, y: number) =>
+    map.biomes.get(`${Math.floor(x)},${Math.floor(y)}`) !== "water" ||
+    !KIND_BY_KEY.get(kind)?.animal ||
+    KIND_BY_KEY.get(kind)?.swims === true;
+
+  /** Terep a választott méretű ecsettel; `biome: null` visszafüvesít. */
+  const paintBiome = (
+    held: Extract<Drag, { type: "biome" }>,
+    x: number,
+    y: number,
+  ) => {
+    // Az ecset a bal panelen állítható (1×1 … 9×9).
+    const reach = (brush - 1) / 2;
+    let changed = false;
+    const from = held.last ?? { x, y };
+    const steps = Math.max(
+      1,
+      Math.ceil(Math.hypot(x - from.x, y - from.y) * 2),
+    );
+    for (let i = 0; i <= steps; i++) {
+      const px = from.x + ((x - from.x) * i) / steps;
+      const py = from.y + ((y - from.y) * i) / steps;
+      for (let dy = -reach; dy <= reach; dy++) {
+        for (let dx = -reach; dx <= reach; dx++) {
+          const key = `${Math.floor(px) + dx},${Math.floor(py) + dy}`;
+          if ((held.biomes[key] ?? null) === held.biome) continue;
+          if (held.biome) held.biomes[key] = held.biome;
+          else delete held.biomes[key];
+          changed = true;
+        }
+      }
+    }
+    held.last = { x, y };
+    if (changed) saveEdits({ ...edits, biomes: { ...held.biomes } });
+  };
+
   /** Elfér-e itt egy ház; ha nem, a bal panel alján megírja, miért. */
   const roomFor = (at: Point, ignore: string | null) => {
     const main = map.main;
@@ -1576,7 +2121,7 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
       at.y < main.y + 17 &&
       main.y - 1 < at.y + 10;
     const fits =
-      houseFits(at.x, at.y, height) &&
+      houseFits(at.x, at.y, height, cols) &&
       !nearMain &&
       !placed.some(
         (house) =>
@@ -1664,13 +2209,70 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
       paint(held, x, y);
       return;
     }
+    if (tool === "terrain-delete") {
+      drag.current = null;
+      // Az egész összefüggő terep (egy tó, egy jégmező) egy kattintásra.
+      const start = `${Math.floor(x)},${Math.floor(y)}`;
+      const biome = edits.biomes[start];
+      if (!biome) {
+        setNote("Itt nincs terep — kattints egy vízre, homokra vagy jégre.");
+        return;
+      }
+      const biomes = { ...edits.biomes };
+      const queue = [start];
+      while (queue.length) {
+        const key = queue.pop() as string;
+        if (biomes[key] !== biome) continue;
+        delete biomes[key];
+        const [cx, cy] = key.split(",").map(Number);
+        queue.push(
+          `${cx + 1},${cy}`,
+          `${cx - 1},${cy}`,
+          `${cx},${cy + 1}`,
+          `${cx},${cy - 1}`,
+        );
+      }
+      saveEdits({ ...edits, biomes });
+      return;
+    }
+    if (tool?.startsWith("terrain:")) {
+      const biome = tool.slice("terrain:".length);
+      const held: Drag = {
+        type: "biome",
+        biome: BIOMES.some((item) => item.key === biome)
+          ? (biome as BiomeKey)
+          : null,
+        biomes: { ...edits.biomes },
+      };
+      drag.current = held;
+      paintBiome(held, x, y);
+      return;
+    }
+    if (tool === "fence" || tool === "fence-erase") {
+      const held: Drag = {
+        type: "fence",
+        erase: tool === "fence-erase",
+        fences: new Set(edits.fences),
+      };
+      drag.current = held;
+      paintFence(held, x, y);
+      return;
+    }
     if (tool) {
       drag.current = { type: "click", startX: x, startY: y };
       return;
     }
     const item = itemAt(x, y);
     if (item) {
-      drag.current = { type: "item", item, startX: x, startY: y, moved: false };
+      drag.current = {
+        type: "item",
+        item,
+        startX: x,
+        startY: y,
+        moved: false,
+        fromX: item.homeX ?? item.x,
+        fromY: item.homeY ?? item.y,
+      };
       return;
     }
     if (personAt(x, y)) {
@@ -1692,15 +2294,48 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
             startY: y,
             moved: false,
           }
-        : null;
+        : {
+            type: "pan",
+            clientX: event.clientX,
+            clientY: event.clientY,
+            left: scroller.current?.scrollLeft ?? 0,
+            top: scroller.current?.scrollTop ?? 0,
+          };
   };
 
   const onPointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (tool?.startsWith("terrain:")) {
+      const at = toTile(event);
+      const half = (brush - 1) / 2;
+      brushAt.current = {
+        x: Math.floor(at.x) - half,
+        y: Math.floor(at.y) - half,
+        size: brush,
+      };
+    } else {
+      brushAt.current = null;
+    }
     const held = drag.current;
     if (!held || held.type === "click") return;
+    if (held.type === "pan") {
+      const box = scroller.current;
+      if (box) {
+        box.scrollLeft = held.left - (event.clientX - held.clientX);
+        box.scrollTop = held.top - (event.clientY - held.clientY);
+      }
+      return;
+    }
     const { x, y } = toTile(event);
     if (held.type === "paint") {
       paint(held, x, y);
+      return;
+    }
+    if (held.type === "fence") {
+      paintFence(held, x, y);
+      return;
+    }
+    if (held.type === "biome") {
+      paintBiome(held, x, y);
       return;
     }
     if (
@@ -1725,11 +2360,28 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
   const onPointerUp = (event: React.PointerEvent<HTMLCanvasElement>) => {
     const held = drag.current;
     drag.current = null;
-    if (!held || held.type === "paint") return;
+    if (
+      !held ||
+      held.type === "paint" ||
+      held.type === "fence" ||
+      held.type === "biome" ||
+      held.type === "pan"
+    ) {
+      return;
+    }
     const { x, y } = toTile(event);
 
     if (held.type === "item") {
-      if (held.moved) saveItems(items.current);
+      if (!held.moved) return;
+      const item = held.item;
+      if (!canStand(item.kind, item.x, item.y)) {
+        item.x = item.homeX = held.fromX;
+        item.y = item.homeY = held.fromY;
+        item.tx = item.ty = undefined;
+        setNote(NO_SWIM);
+        return;
+      }
+      saveItems(items.current);
       return;
     }
 
@@ -1798,6 +2450,10 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
       return;
     }
     if (tool) {
+      if (!canStand(tool, x, y + 0.5)) {
+        setNote(NO_SWIM);
+        return;
+      }
       items.current.push({ kind: tool, x, y: y + 0.5 });
       saveItems(items.current);
       return;
@@ -1814,6 +2470,7 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
     });
   const toolButton = (key: string, label: string) => (
     <button
+      key={key}
       type="button"
       aria-pressed={tool === key}
       onClick={() => setTool((current) => (current === key ? null : key))}
@@ -1833,17 +2490,33 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
       className="relative mx-auto bg-[#3e8948]"
       style={
         full
-          ? // Teljes képernyőn a térkép egészben, középen.
-            { display: "flex", alignItems: "center", justifyContent: "center" }
+          ? undefined
           : {
               width: "100%",
-              // Alacsony ablakban a rét alja kilóg — levágjuk, görgetősáv helyett.
-              maxHeight: room ?? undefined,
+              // A sáv alatti teljes ablak; a rét alja kilóg — levágjuk, görgetősáv helyett.
+              height: room ?? "100vh",
               overflow: "hidden",
             }
       }
     >
       <div className="absolute right-3 top-3 z-20 flex gap-2 font-mono text-xs text-[#5a2a1c]">
+        <button
+          type="button"
+          aria-expanded={listOpen}
+          onClick={() => {
+            if (listOpen) {
+              select(null);
+            } else {
+              setReport(null);
+            }
+            setListOpen(!listOpen);
+          }}
+          className={`flex h-9 items-center gap-1.5 rounded-md border-2 border-[#7a4a1c] px-3 font-bold shadow-xl ${
+            listOpen ? "bg-[#ead0a0]" : "bg-[#f4d9a6] hover:bg-[#ead0a0]"
+          }`}
+        >
+          🐾 Állatok{listOpen ? ` (${animals.length})` : ""}
+        </button>
         <button
           type="button"
           onClick={togglePause}
@@ -1870,71 +2543,113 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
           {full ? "✕ Kilépés" : "⛶ Teljes képernyő"}
         </button>
       </div>
-      {/* A feliratok a vászonhoz igazodnak, nem a levágott kerethez. */}
+      {/* Nagyításkor ez görget; a panelek kívül maradnak, a helyükön. */}
       <div
-        className="relative"
-        style={
-          full
-            ? { width: `min(100vw, calc(100vh * ${COLS} / ${height}))` }
-            : undefined
-        }
+        ref={scroller}
+        className="absolute inset-0 flex"
+        onScroll={grow}
+        style={{ overflow: "auto" }}
       >
-        <canvas
-          ref={canvasRef}
-          onPointerDown={onPointerDown}
-          onPointerMove={onPointerMove}
-          onPointerUp={onPointerUp}
-          onPointerCancel={() => {
-            drag.current = null;
-          }}
-          title={
-            tool
-              ? "Kattints vagy húzd a térképen"
-              : "Fogd meg és húzd: ház, állat, tárgy. Kattints egy házra vagy lakóra."
-          }
-          className={`block h-auto w-full touch-none ${tool ? "cursor-crosshair" : "cursor-pointer"}`}
+        {/* A feliratok a vászonhoz igazodnak, nem a levágott kerethez. */}
+        <div
+          className="relative shrink-0 self-start"
           style={{
-            imageRendering: "pixelated",
-            aspectRatio: `${COLS} / ${height}`,
+            width: full
+              ? `calc(min(100vw, calc(100vh * ${COLS} / ${fit})) * ${(zoom * spanX) / COLS})`
+              : // 100%-on a mag (COLS) tölti ki a szélességet, a többi kilóg: görgethető.
+                `${((zoom * spanX) / COLS) * 100}%`,
+            // Teljes képernyőn középen; egyébként felül, mert az alja levágható.
+            margin: full ? "auto" : "0 auto",
           }}
-        />
-        {placed.map((house) => (
-          <span
-            key={house.id}
-            className={`pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-sm border-2 border-[#7a4a1c] bg-[#f4d9a6] px-2 py-0.5 font-mono text-[#5a2a1c] shadow ${
-              house.main ? "text-sm font-bold" : "text-xs"
-            }`}
-            style={{
-              left: `${((house.x + (house.main ? 6 : 3)) / COLS) * 100}%`,
-              top: `${(house.y / height) * 100}%`,
+        >
+          <canvas
+            ref={canvasRef}
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={() => {
+              drag.current = null;
             }}
-          >
-            {house.label}
-            {house.kind && house.kind !== "sender" ? (
-              <span className="block text-center text-[10px] opacity-70">
-                {HOUSE_KINDS.find((kind) => kind.key === house.kind)?.label}
-              </span>
-            ) : null}
-          </span>
-        ))}
-        {placed
-          .filter((house) => !house.main)
-          .map((house) => (
+            onPointerLeave={() => {
+              brushAt.current = null;
+            }}
+            title={
+              tool
+                ? "Kattints vagy húzd a térképen"
+                : "Fogd meg és húzd: ház, állat, tárgy. Kattints egy házra vagy lakóra."
+            }
+            className={`block h-auto w-full touch-none ${tool ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+            style={{
+              imageRendering: "pixelated",
+              aspectRatio: `${spanX} / ${spanY}`,
+            }}
+          />
+          {placed.map((house) => (
             <span
-              key={`timer-${house.id}`}
-              ref={(element) => {
-                if (element) timers.current.set(house.id, element);
-                else timers.current.delete(house.id);
+              key={house.id}
+              className={`pointer-events-none absolute -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-sm border-2 border-[#7a4a1c] bg-[#f4d9a6] px-2 py-0.5 font-mono text-[#5a2a1c] shadow ${
+                house.main ? "text-sm font-bold" : "text-xs"
+              }`}
+              style={{
+                left: `${((house.x + (house.main ? 6 : 3) + left) / spanX) * 100}%`,
+                top: `${((house.y + top) / spanY) * 100}%`,
               }}
-              className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded-sm bg-black/60 px-1.5 font-mono text-[11px] tabular-nums text-white empty:hidden"
-            />
+            >
+              {house.label}
+              {house.kind && house.kind !== "sender" ? (
+                <span className="block text-center text-[10px] opacity-70">
+                  {HOUSE_KINDS.find((kind) => kind.key === house.kind)?.label}
+                </span>
+              ) : null}
+            </span>
           ))}
+          {placed
+            .filter((house) => !house.main)
+            .map((house) => (
+              <span
+                key={`timer-${house.id}`}
+                ref={(element) => {
+                  if (element) timers.current.set(house.id, element);
+                  else timers.current.delete(house.id);
+                }}
+                className="pointer-events-none absolute -translate-x-1/2 whitespace-nowrap rounded-sm bg-black/60 px-1.5 font-mono text-[11px] tabular-nums text-white empty:hidden"
+              />
+            ))}
+        </div>
       </div>
-      <aside className="absolute left-3 top-3 w-44 [:fullscreen_&]:hidden rounded-md border-2 border-[#7a4a1c] bg-[#f4d9a6]/95 p-2 font-mono text-[11px] text-[#5a2a1c] shadow-xl">
+      <div className="absolute bottom-3 left-16 z-20 flex items-center gap-1 font-mono text-xs text-[#5a2a1c]">
+        <button
+          type="button"
+          onClick={() => zoomBy(-1)}
+          disabled={zoom === ZOOMS[0]}
+          aria-label="Kicsinyítés"
+          title="Kicsinyítés"
+          className="h-9 w-9 rounded-md border-2 border-[#7a4a1c] bg-[#f4d9a6] text-lg font-bold shadow-xl hover:bg-[#ead0a0] disabled:opacity-40"
+        >
+          −
+        </button>
+        <button
+          type="button"
+          onClick={() => zoomBy(1)}
+          disabled={zoom === ZOOMS[ZOOMS.length - 1]}
+          aria-label="Nagyítás"
+          title="Nagyítás"
+          className="h-9 w-9 rounded-md border-2 border-[#7a4a1c] bg-[#f4d9a6] text-lg font-bold shadow-xl hover:bg-[#ead0a0] disabled:opacity-40"
+        >
+          +
+        </button>
+        <span className="rounded-sm bg-black/60 px-1.5 py-0.5 text-white tabular-nums">
+          {Math.round(zoom * 100)}%
+        </span>
+      </div>
+      <aside className="absolute left-3 top-3 max-h-[calc(100%-72px)] w-56 overflow-y-auto overflow-x-hidden overscroll-contain [:fullscreen_&]:hidden rounded-md border-2 border-[#7a4a1c] bg-[#f4d9a6]/95 p-2 font-mono text-[11px] text-[#5a2a1c] shadow-xl">
         <p className="mb-1 font-bold">Hozzáadás</p>
         {(["Állatok", "Növények", "Tárgyak"] as const).map((group) => (
-          <div key={group} className="mb-2">
-            <p className="mb-1 opacity-70">{group}</p>
+          // Lenyitható szakaszok; az Állatok és a Növények hosszú lista, alapból zárva.
+          <details key={group} className="mb-2" open={group === "Tárgyak"}>
+            <summary className="mb-1 cursor-pointer select-none opacity-70 hover:opacity-100">
+              {group} ({ITEMS.filter((item) => item.group === group).length})
+            </summary>
             <div className="grid grid-cols-2 gap-1">
               {ITEMS.filter((item) => item.group === group).map((item) => (
                 <button
@@ -1959,42 +2674,92 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
                 </button>
               ))}
             </div>
-          </div>
+          </details>
         ))}
-        <p className="mb-1 opacity-70">Házak</p>
-        <div className="mb-2 grid grid-cols-2 gap-1">
-          {HOUSE_KINDS.filter((kind) => kind.key !== "sender").map((kind) => (
-            <button
-              key={kind.key}
-              type="button"
-              aria-pressed={tool === `house:${kind.key}`}
-              onClick={() =>
-                setTool((current) =>
-                  current === `house:${kind.key}` ? null : `house:${kind.key}`,
-                )
-              }
-              className={`flex items-center gap-1 rounded-sm border px-1 py-1 text-left leading-tight ${
-                tool === `house:${kind.key}`
-                  ? "border-[#5a2a1c] bg-[#e2b97a]"
-                  : "border-[#7a4a1c] hover:bg-[#ead0a0]"
-              }`}
-            >
-              <span
-                className="h-3 w-3 shrink-0 rounded-sm border border-[#7a4a1c]"
-                style={{
-                  background: ROOFS.find((roof) => roof.key === kind.roof)
-                    ?.swatch,
-                }}
-              />
-              {kind.label}
-            </button>
-          ))}
-        </div>
-        <p className="mb-1 opacity-70">Út</p>
-        <div className="mb-2 grid grid-cols-2 gap-1">
-          {toolButton("path", "Út rajzolás")}
-          {toolButton("path-erase", "Út radír")}
-        </div>
+        <details className="mb-2" open>
+          <summary className="mb-1 cursor-pointer select-none opacity-70 hover:opacity-100">
+            Házak
+          </summary>
+          <div className="grid grid-cols-2 gap-1">
+            {HOUSE_KINDS.filter((kind) => kind.key !== "sender").map((kind) => (
+              <button
+                key={kind.key}
+                type="button"
+                aria-pressed={tool === `house:${kind.key}`}
+                onClick={() =>
+                  setTool((current) =>
+                    current === `house:${kind.key}`
+                      ? null
+                      : `house:${kind.key}`,
+                  )
+                }
+                className={`flex items-center gap-1 rounded-sm border px-1 py-1 text-left leading-tight ${
+                  tool === `house:${kind.key}`
+                    ? "border-[#5a2a1c] bg-[#e2b97a]"
+                    : "border-[#7a4a1c] hover:bg-[#ead0a0]"
+                }`}
+              >
+                <span
+                  className="h-3 w-3 shrink-0 rounded-sm border border-[#7a4a1c]"
+                  style={{
+                    background: ROOFS.find((roof) => roof.key === kind.roof)
+                      ?.swatch,
+                  }}
+                />
+                {kind.label}
+              </button>
+            ))}
+          </div>
+        </details>
+        <details className="mb-2" open>
+          <summary className="mb-1 cursor-pointer select-none opacity-70 hover:opacity-100">
+            Út
+          </summary>
+          <div className="grid grid-cols-2 gap-1">
+            {toolButton("path", "Út rajzolás")}
+            {toolButton("path-erase", "Út radír")}
+          </div>
+        </details>
+        <details className="mb-2" open>
+          <summary className="mb-1 cursor-pointer select-none opacity-70 hover:opacity-100">
+            Terep
+          </summary>
+          <div className="grid grid-cols-2 gap-1">
+            {BIOMES.map((biome) =>
+              toolButton(`terrain:${biome.key}`, biome.label),
+            )}
+            {toolButton("terrain:grass", "Fű (radír)")}
+            {toolButton("terrain-delete", "Terep törlése")}
+          </div>
+          <div className="mt-1 flex items-center gap-1">
+            <span className="opacity-70">Ecset:</span>
+            {BRUSHES.map((size) => (
+              <button
+                key={size}
+                type="button"
+                aria-pressed={brush === size}
+                title={`${size}×${size} csempe`}
+                onClick={() => setBrush(size)}
+                className={`h-6 min-w-6 flex-1 rounded-sm border px-1 ${
+                  brush === size
+                    ? "border-[#5a2a1c] bg-[#e2b97a] font-bold"
+                    : "border-[#7a4a1c] hover:bg-[#ead0a0]"
+                }`}
+              >
+                {size}
+              </button>
+            ))}
+          </div>
+        </details>
+        <details className="mb-2" open>
+          <summary className="mb-1 cursor-pointer select-none opacity-70 hover:opacity-100">
+            Kerítés
+          </summary>
+          <div className="grid grid-cols-2 gap-1">
+            {toolButton("fence", "Kerítés")}
+            {toolButton("fence-erase", "Kerítés radír")}
+          </div>
+        </details>
         <div className="grid grid-cols-2 gap-1 border-t border-[#7a4a1c] pt-2">
           {toolButton("erase", "Radír")}
           <button
@@ -2012,15 +2777,76 @@ export default function VillageMap({ houses }: { houses: VillageHouse[] }) {
         </div>
         <p className="mt-2 opacity-70">
           {note ??
-            (tool === "path" || tool === "path-erase"
-              ? "Húzd az egeret a térképen. Újra a gombra: kész."
-              : tool?.startsWith("house:")
-                ? "Kattints a térképre, ahova a házat tennéd."
-                : tool
-                  ? "Kattints a térképre. Újra a gombra: kész."
-                  : "Fogd meg és húzd a házat, állatot, tárgyat. Házra kattintva: ki lakjon benne.")}
+            (tool === "path" ||
+            tool === "path-erase" ||
+            tool === "fence" ||
+            tool === "fence-erase" ||
+            tool?.startsWith("terrain:")
+              ? tool === "fence"
+                ? "Húzd körbe a karámot. Ami bent van, bent marad. Újra a gombra: kész."
+                : "Húzd az egeret a térképen. Újra a gombra: kész."
+              : tool === "terrain-delete"
+                ? "Kattints egy tóra, jégre vagy homokra: az egész eltűnik. Újra a gombra: kész."
+                : tool?.startsWith("house:")
+                  ? "Kattints a térképre, ahova a házat tennéd."
+                  : tool
+                    ? "Kattints a térképre. Újra a gombra: kész."
+                    : "Fogd meg és húzd a házat, állatot, tárgyat. Házra kattintva: ki lakjon benne. Üres részen húzva vagy a nyilakkal: mozog a térkép.")}
         </p>
       </aside>
+      {listOpen && !report ? (
+        <aside className="absolute right-3 top-14 z-10 flex max-h-[calc(100%-68px)] w-64 flex-col overflow-hidden rounded-md border-2 border-[#7a4a1c] bg-[#f4d9a6] font-mono text-xs text-[#5a2a1c] shadow-xl">
+          <header className="flex items-center justify-between border-b-2 border-[#7a4a1c] px-3 py-2">
+            <span className="font-bold">
+              Lerakott állatok ({animals.length})
+            </span>
+            <button
+              type="button"
+              aria-label="Lista bezárása"
+              onClick={() => {
+                select(null);
+                setListOpen(false);
+              }}
+              className="px-1 hover:opacity-70"
+            >
+              ✕
+            </button>
+          </header>
+          {animals.length ? (
+            <ul className="overflow-y-auto p-1">
+              {animals.map(({ kind: key, at }, index) => {
+                const kind = KIND_BY_KEY.get(key);
+                if (!kind) return null;
+                const number = animals
+                  .slice(0, index + 1)
+                  .filter((other) => other.kind === key).length;
+                return (
+                  <li key={at}>
+                    <button
+                      type="button"
+                      aria-pressed={selected === at}
+                      onClick={() => focusAnimal(at)}
+                      className={`flex w-full items-center gap-2 rounded-sm px-2 py-1 text-left ${
+                        selected === at
+                          ? "bg-[#ffd23f]/60"
+                          : "hover:bg-[#ead0a0]"
+                      }`}
+                    >
+                      <span style={previewStyle(kind, 22)} />
+                      <span className="flex-1 truncate">{kind.label}</span>
+                      <span className="opacity-60">#{number}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <p className="p-3 opacity-70">
+              Még nincs lerakott állat — a bal panelből tehetsz le.
+            </p>
+          )}
+        </aside>
+      ) : null}
       {report && reportHouse ? (
         <aside className="absolute right-3 top-14 flex max-h-[calc(100%-68px)] [:fullscreen_&]:hidden w-80 flex-col overflow-hidden rounded-md border-2 border-[#7a4a1c] bg-[#f4d9a6] font-mono text-xs text-[#5a2a1c] shadow-xl">
           <header className="flex items-center justify-between border-b-2 border-[#7a4a1c] px-3 py-2">

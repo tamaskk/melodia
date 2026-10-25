@@ -71,6 +71,8 @@ export interface AutoQueue {
   /** A fiók aznapi kerete, a legszűkebb korlát, és ami ebből már foglalt. */
   limit: DayLimit;
   contactIds: string[];
+  /** Ennyi címzettnél nem illik a levél nyelve a cég országához. */
+  mismatched: number;
 }
 
 export interface AutoPlan {
@@ -224,6 +226,7 @@ export async function planAutoSchedule(
         count: take,
         limit,
         contactIds: leads.slice(offset, offset + take),
+        mismatched: 0,
       });
       offset += take;
     }
@@ -244,16 +247,32 @@ export async function planAutoSchedule(
     out.pop();
   }
 
-  const mismatched = offset
-    ? await (
-        await getContacts()
-      ).countDocuments({
-        _id: {
-          $in: leads.slice(0, offset).map((id) => new ObjectId(id)),
-        },
-        ...LANGUAGE_MISMATCH,
-      } as never)
-    : 0;
+  // Csak az _id jön át, hogy queue-nként is látsszon, hol vannak.
+  const wrong = offset
+    ? new Set(
+        (
+          await (
+            await getContacts()
+          )
+            .find(
+              {
+                _id: {
+                  $in: leads.slice(0, offset).map((id) => new ObjectId(id)),
+                },
+                ...LANGUAGE_MISMATCH,
+              } as never,
+              { projection: { _id: 1 } },
+            )
+            .toArray()
+        ).map((doc) => String(doc._id)),
+      )
+    : new Set<string>();
+  for (const { queues } of out) {
+    for (const queue of queues) {
+      queue.mismatched = queue.contactIds.filter((id) => wrong.has(id)).length;
+    }
+  }
+  const mismatched = wrong.size;
 
   return {
     mode,

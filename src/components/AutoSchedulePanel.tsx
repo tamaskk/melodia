@@ -84,6 +84,8 @@ export default function AutoSchedulePanel({
   const [plan, setPlan] = useState<AutoPlan | null>(null);
   // Az előnézetben lenyitott queue címzettjei (kulcs: nap + fiók).
   const [leads, setLeads] = useState<Record<string, Lead[]>>({});
+  // A lenyitott queue-k kulcsai — így gombbal is lenyithatók.
+  const [opened, setOpened] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -140,6 +142,7 @@ export default function AutoSchedulePanel({
     try {
       setPlan((await post("preview", settings())) as AutoPlan);
       setLeads({});
+      setOpened([]);
     } catch (caught) {
       setError((caught as Error).message);
     } finally {
@@ -453,12 +456,36 @@ export default function AutoSchedulePanel({
                 </p>
               ) : null}
               {plan.mismatched ? (
-                <p className="text-sm text-amber-300">
-                  {formatNumber(plan.mismatched)} címzettnél a levél nyelve nem
-                  illik a cég országához (pl. magyar cég angol levelet kapna).
-                  Lenyitva a sorokat sárgával jelölve látod őket — elfogadás
-                  előtt érdemes rendbe tenni.
-                </p>
+                <div className="flex flex-wrap items-start gap-2">
+                  <p className="min-w-0 flex-1 text-sm text-amber-300">
+                    {formatNumber(plan.mismatched)} címzettnél a levél nyelve
+                    nem illik a cég országához (pl. magyar cég angol levelet
+                    kapna). Lenyitva a sorokat sárgával jelölve látod őket —
+                    elfogadás előtt érdemes rendbe tenni.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const keys = plan.days.flatMap(({ day, queues }) =>
+                        queues
+                          .filter((queue) => queue.mismatched)
+                          .map((queue) => `${day}:${queue.accountId}`),
+                      );
+                      setOpened(keys);
+                      requestAnimationFrame(() =>
+                        document
+                          .querySelector(`[data-queue="${keys[0]}"]`)
+                          ?.scrollIntoView({
+                            block: "start",
+                            behavior: "smooth",
+                          }),
+                      );
+                    }}
+                    className={button("ghost", "sm")}
+                  >
+                    Mutasd őket
+                  </button>
+                </div>
               ) : null}
               {plan.capped ? (
                 <p className="text-sm text-amber-300">
@@ -497,6 +524,11 @@ export default function AutoSchedulePanel({
                           {queue.label}
                           {queue.provider === "resend" ? " · Resend" : ""}
                         </span>
+                        {queue.mismatched ? (
+                          <span className="whitespace-nowrap text-xs text-amber-300">
+                            {queue.mismatched} nem illő nyelv
+                          </span>
+                        ) : null}
                         <span className="ml-auto whitespace-nowrap font-mono text-xs">
                           {queue.count} címzett
                         </span>
@@ -516,10 +548,18 @@ export default function AutoSchedulePanel({
                     return queue.count ? (
                       <details
                         key={key}
+                        data-queue={key}
+                        open={opened.includes(key)}
                         onToggle={(event) => {
-                          if (event.currentTarget.open) {
-                            void showLeads(key, queue);
-                          }
+                          const open = event.currentTarget.open;
+                          if (open) void showLeads(key, queue);
+                          setOpened((current) =>
+                            open
+                              ? current.includes(key)
+                                ? current
+                                : [...current, key]
+                              : current.filter((item) => item !== key),
+                          );
                         }}
                         className="rounded-lg border border-[var(--border)]"
                       >
