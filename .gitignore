@@ -45,10 +45,6 @@ next-env.d.ts
 atlas-credentials.env
 .seed-data.json
 
-# Személyes csatolmányok (CV, ajánlólevél)
-attachments/*
-!attachments/README.md
-
 # Claude Code — a személyes eltérések nem verziókövetettek
 .claude/settings.local.json
 
