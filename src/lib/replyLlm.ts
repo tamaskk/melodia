@@ -157,7 +157,7 @@ Rules:
 - If the sender declined (no open position), thank them for the reply, say you understand, and that you would be glad if they kept you in mind / reached out to you should something open up. The sender is the one who would reach out — keep the grammar right. Hungarian wording to use: "Ha a jövőben nyílna lehetőség, örülnék, ha gondolnának rám." English: "Should anything open up in the future, I would be glad if you kept me in mind."
 - Match the tone and length of STYLE EXAMPLES. Keep it short: 3-6 sentences between greeting and sign-off.
 - Address the sender by name if known, otherwise the company's team.
-- Sign-off on separate lines: a closing phrase in the reply's language, then "${PROFILE.name}", then "${PROFILE.email} · ${PROFILE.phone}".
+- End the body with the last sentence. Do NOT write a closing phrase, name or contact details — the signature is appended automatically.
 - Return ONLY JSON: {"language":"hu"|"en","body":string}.
 `.trim();
 
@@ -224,6 +224,39 @@ function buildUserPrompt(input: ReplyDraftInput): string {
   ].join("\n");
 }
 
+/** Elköszönésnek számító sor — ezzel kezdődik a modell saját aláírása. */
+const SIGN_OFF =
+  /^(üdvözlettel|tisztelettel|köszönettel|szép napot|best regards|kind regards|regards|best wishes|sincerely)[,.!]?$/i;
+
+/**
+ * A modell aláírását levágja, és mindig ugyanazt teszi a végére — a helyi
+ * LLM néha kihagyja vagy átírja.
+ */
+export function withSignature(body: string, language: "hu" | "en"): string {
+  const lines = body.trimEnd().split("\n");
+  // Csak a levél végén keresünk, hogy egy szövegközi „Köszönettel" ne vágjon.
+  const from = Math.max(0, lines.length - 6);
+  let cut = lines.length;
+  for (let index = lines.length - 1; index >= from; index--) {
+    const line = lines[index].trim();
+    if (
+      SIGN_OFF.test(line) ||
+      line === PROFILE.name ||
+      line.includes(PROFILE.email)
+    ) {
+      cut = index;
+    }
+  }
+  const closing = language === "hu" ? "Üdvözlettel," : "Best regards,";
+  return [
+    lines.slice(0, cut).join("\n").trimEnd(),
+    "",
+    closing,
+    PROFILE.name,
+    `${PROFILE.email} · ${PROFILE.phone}`,
+  ].join("\n");
+}
+
 /**
  * A piszkozat: nyelv és szöveg. Hibás JSON vagy kitöltendő hely esetén újat
  * kér — a harmadik után feladja.
@@ -244,7 +277,11 @@ export async function generateReplyDraft(
     } else if (PLACEHOLDER.test(body)) {
       reason = "kitöltendő hely maradt";
     } else {
-      return { language, body, model: routedVia };
+      return {
+        language,
+        body: withSignature(body, language),
+        model: routedVia,
+      };
     }
     log.debug(
       `${input.company}: ${reason} (${routedVia}), új próba ${attempt}/${ATTEMPTS}`,

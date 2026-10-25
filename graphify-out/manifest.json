@@ -660,9 +660,9 @@
     "semantic_hash": "18be4a9e44d1c643d22327269c37e19f"
   },
   "src/components/MailApp.tsx": {
-    "mtime": 1792924902.1202502,
-    "seen": 1792925009.895206,
-    "ast_hash": "0b854b0e84b28c0e6e235f1fac667588",
+    "mtime": 1792942313.6135466,
+    "seen": 1792942350.126904,
+    "ast_hash": "dbdabff9b5b5a5aca813fc18fd5dcc3e",
     "semantic_hash": ""
   },
   "src/components/MailChart.tsx": {
@@ -760,12 +760,6 @@
     "seen": 1792269338.757774,
     "ast_hash": "23356461fc0ca7aaf409e537c4637dce",
     "semantic_hash": "23356461fc0ca7aaf409e537c4637dce"
-  },
-  "src/components/ThreadComposer.tsx": {
-    "mtime": 1792566213.6274266,
-    "seen": 1792566468.941002,
-    "ast_hash": "24e020fa25eb68cbe47f96087a185cf4",
-    "semantic_hash": ""
   },
   "src/components/TitleChipsInput.tsx": {
     "mtime": 1791528798.1941605,
@@ -1422,10 +1416,10 @@
     "semantic_hash": "c9fd12d7cbcb7cf1cfa3d4446efd7af7"
   },
   "src/lib/replyLlm.ts": {
-    "mtime": 1792257098.0677252,
-    "seen": 1792269338.7578418,
-    "ast_hash": "59e226ff31606766d7060a62e926aa36",
-    "semantic_hash": "59e226ff31606766d7060a62e926aa36"
+    "mtime": 1792941774.448026,
+    "seen": 1792941922.453984,
+    "ast_hash": "fd0acd9fcb403a7ec481aaf88f941828",
+    "semantic_hash": ""
   },
   "src/lib/replyTriage.ts": {
     "mtime": 1791459524.3282735,
