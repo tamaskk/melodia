@@ -7,8 +7,8 @@ import {
 import { markDraftSent, threadDraft } from "@/lib/autoDrafts";
 
 export const dynamic = "force-dynamic";
-// A piszkozatot a helyi Claude CLI írja — ez percig is eltarthat.
-export const maxDuration = 120;
+// A piszkozatot a helyi LLM írja, hibánál háromszor próbál — percekig is tarthat.
+export const maxDuration = 200;
 
 /**
  * `?threadId=` — honnan és kinek menne a levél ebben a szálban, és a kész

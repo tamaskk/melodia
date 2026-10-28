@@ -348,9 +348,9 @@
     "semantic_hash": "d6ebf3abd095bac1f2b9dcbbd84d8097"
   },
   "src/app/api/mail/thread/route.ts": {
-    "mtime": 1792566187.279521,
-    "seen": 1792566468.9386308,
-    "ast_hash": "bbcc502d31423d282b2608cb65c6045a",
+    "mtime": 1793133761.4744685,
+    "seen": 1793133872.426629,
+    "ast_hash": "9ef5ddf8923aa35691542c00917487eb",
     "semantic_hash": ""
   },
   "src/app/api/queues/auto/route.ts": {
@@ -660,9 +660,9 @@
     "semantic_hash": "18be4a9e44d1c643d22327269c37e19f"
   },
   "src/components/MailApp.tsx": {
-    "mtime": 1792942313.6135466,
-    "seen": 1792942350.126904,
-    "ast_hash": "dbdabff9b5b5a5aca813fc18fd5dcc3e",
+    "mtime": 1793133824.6540282,
+    "seen": 1793133872.428407,
+    "ast_hash": "0b854b0e84b28c0e6e235f1fac667588",
     "semantic_hash": ""
   },
   "src/components/MailChart.tsx": {
@@ -810,9 +810,9 @@
     "semantic_hash": ""
   },
   "src/instrumentation.ts": {
-    "mtime": 1792421265.9171097,
-    "seen": 1792426590.8971899,
-    "ast_hash": "be8456d8b76a234fd609ab4a012ed824",
+    "mtime": 1793133761.4748197,
+    "seen": 1793133872.429245,
+    "ast_hash": "1f8279faac205010c25363fc2994a2d6",
     "semantic_hash": ""
   },
   "src/lib/accountStore.ts": {
@@ -1314,9 +1314,9 @@
     "semantic_hash": "202bec9c9164f79c359f69be1b33a734"
   },
   "src/lib/mailStore.ts": {
-    "mtime": 1792566140.987379,
-    "seen": 1792566468.94424,
-    "ast_hash": "d1f3e4335c52612111e566600a1b7d7d",
+    "mtime": 1793134229.2508528,
+    "seen": 1793137811.276524,
+    "ast_hash": "edb6bc4108c811e6641136290d8d54fa",
     "semantic_hash": ""
   },
   "src/lib/mailer.ts": {
@@ -1392,10 +1392,10 @@
     "semantic_hash": "e05b12244557991d17f3bfb82a1eeb9a"
   },
   "src/lib/profile.ts": {
-    "mtime": 1791459524.3268948,
-    "seen": 1792269338.75784,
-    "ast_hash": "3fc1261645030e406376c4cd89e5e875",
-    "semantic_hash": "3fc1261645030e406376c4cd89e5e875"
+    "mtime": 1793137546.6354003,
+    "seen": 1793137811.2769248,
+    "ast_hash": "f55ff673f8600bf0de30830527518861",
+    "semantic_hash": ""
   },
   "src/lib/queuePlan.ts": {
     "mtime": 1791576677.0210507,
@@ -1416,9 +1416,9 @@
     "semantic_hash": "c9fd12d7cbcb7cf1cfa3d4446efd7af7"
   },
   "src/lib/replyLlm.ts": {
-    "mtime": 1792941774.448026,
-    "seen": 1792941922.453984,
-    "ast_hash": "fd0acd9fcb403a7ec481aaf88f941828",
+    "mtime": 1793137780.7142541,
+    "seen": 1793137811.277099,
+    "ast_hash": "b79f2d4ec47624823f70ad1344bbe66b",
     "semantic_hash": ""
   },
   "src/lib/replyTriage.ts": {
@@ -1500,10 +1500,10 @@
     "semantic_hash": "1be8170a676874701f719fd9f11803b8"
   },
   "src/lib/threadCompose.ts": {
-    "mtime": 1792148273.0355358,
-    "seen": 1792269338.757851,
-    "ast_hash": "d2e4453ad8304f8fa7a2e1bf86f3fd5d",
-    "semantic_hash": "d2e4453ad8304f8fa7a2e1bf86f3fd5d"
+    "mtime": 1793137219.284306,
+    "seen": 1793137811.2775412,
+    "ast_hash": "7861a8de298af777979ee8e5cb8a7c43",
+    "semantic_hash": ""
   },
   "src/lib/threadReplies.ts": {
     "mtime": 1792924891.7806513,
@@ -1854,9 +1854,9 @@
     "semantic_hash": ""
   },
   "src/lib/autoDrafts.ts": {
-    "mtime": 1792939391.1059382,
-    "seen": 1792939410.040809,
-    "ast_hash": "2a6bcc488c2096f0622b21ae400ad541",
+    "mtime": 1793133774.418618,
+    "seen": 1793133872.4294348,
+    "ast_hash": "61ebc5ff4c9318a573d0bc6ad0d432ec",
     "semantic_hash": ""
   },
   "scripts/village-animals.py": {
@@ -1902,15 +1902,27 @@
     "semantic_hash": ""
   },
   "attachments/en/Tamas_Krisztian_Kalman_introduce.pdf": {
-    "mtime": 1792929165.7272534,
-    "seen": 1792939410.045868,
-    "ast_hash": "eb282e3a42f1cff500918f0697751fca",
+    "mtime": 1793035609.5245464,
+    "seen": 1793133872.434557,
+    "ast_hash": "fa9a2be619636ebef98590fc41ee4058",
     "semantic_hash": ""
   },
   "attachments/hu/Kalman_Tamas_Krisztian_bemutatkozo.pdf": {
-    "mtime": 1792929165.1541762,
-    "seen": 1792939410.045869,
-    "ast_hash": "d3045232d4530ae1ca58370918a3fb3a",
+    "mtime": 1793035608.7714705,
+    "seen": 1793133872.4345589,
+    "ast_hash": "5a716c3311a4884263b98a84859df747",
+    "semantic_hash": ""
+  },
+  "src/components/ThreadComposer.tsx": {
+    "mtime": 1793133819.8964489,
+    "seen": 1793133872.428931,
+    "ast_hash": "5fdb90fbfe4a4b4b7c56b48ba620900f",
+    "semantic_hash": ""
+  },
+  "src/lib/replyTemplates.ts": {
+    "mtime": 1793137776.7167373,
+    "seen": 1793137811.277101,
+    "ast_hash": "82a38dd6017fda5d9e62a95c66844836",
     "semantic_hash": ""
   }
 }

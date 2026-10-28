@@ -88,10 +88,8 @@ export async function register() {
       : "queue-ütemező kikapcsolva (néző példány)",
   );
 
-  // Automatikus Gmail-piszkozatok a mai, válaszra váró levelekre (10 percenként).
-  if ((await import("@/lib/autoDrafts")).startAutoDrafts()) {
-    log.info("automatikus Gmail-piszkozatok köre fut: 10 percenként");
-  }
+  // Automatikus piszkozat nincs: a választ a Levelezésben, a szál alján kérjük
+  // meg kézzel. A Lekérő házra kattintva egy kör még elindítható.
 
   // Időzített válaszok a szálakba: piszkozat a CLI-vel, küldés a szabad helyeken.
   if ((await import("@/lib/threadReplies")).startThreadReplyRunner()) {
