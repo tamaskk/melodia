@@ -7,6 +7,8 @@
  */
 export const PROFILE = {
   name: "Kálmán Tamás Krisztián",
+  /** Angol levélben a nyugati sorrend. */
+  nameEn: "Tamás Krisztián Kálmán",
   email: "kalman.tamaskrisztian@gmail.com",
   phone: "+36 70 315 7553",
   city: "Budapest",

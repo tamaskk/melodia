@@ -607,7 +607,12 @@ export async function dailyCounts(
 
   const out: DailyPoint[] = [];
   for (let index = 0; index < days; index += 1) {
-    const date = new Date(from.getTime() + index * 86_400_000);
+    // Naptári nap, nem 24 óra: az óraátállítás napja 23 vagy 25 órás.
+    const date = new Date(
+      from.getFullYear(),
+      from.getMonth(),
+      from.getDate() + index,
+    );
     const day = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
     out.push(byDay.get(day) ?? { day, sent: 0, replies: 0 });
   }

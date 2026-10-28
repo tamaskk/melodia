@@ -197,7 +197,6 @@ type Found = { runAt: string; found: Record<string, number> };
 type Thread = Awaited<ReturnType<typeof listThreads>>["threads"][number];
 
 const work = globalThis as typeof globalThis & {
-  __melodiaAutoDrafts?: ReturnType<typeof setInterval>;
   /** Épp fut a lekérés (begyűjtés + válogatás) — ilyenkor nem indul másik. */
   __melodiaAutoFetching?: boolean;
   /** A megírásra váró levelek, sorban; a lekérések ide teszik, egy író viszi. */
@@ -413,16 +412,6 @@ export async function triggerAutoDrafts(): Promise<Found> {
   } finally {
     work.__melodiaAutoFetching = false;
   }
-}
-
-/** Tíz percenként egy kör, az első két perccel az indulás után. */
-export function startAutoDrafts(): boolean {
-  if (process.env.VERCEL || isSender() || !isInboxReady()) return false;
-  if (work.__melodiaAutoDrafts) return true;
-  const tick = () => void triggerAutoDrafts().catch(() => undefined);
-  work.__melodiaAutoDrafts = setInterval(tick, EVERY_MS);
-  setTimeout(tick, 2 * 60_000);
-  return true;
 }
 
 /** A falunak: a legutóbbi kör, fiókonként a talált levelek, és a mai piszkozatok. */

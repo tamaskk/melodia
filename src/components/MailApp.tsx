@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import MailChart, { type DailyPoint } from "./MailChart";
 import ScheduledReplies from "./ScheduledReplies";
+import ThreadComposer from "./ThreadComposer";
 import { formatNumber } from "@/lib/format";
 import type { ReplyAttachments } from "@/lib/replyAttachments";
 import {
@@ -957,6 +958,7 @@ export default function MailApp({
                 </p>
               ) : null}
 
+              <ThreadComposer key={open.threadId} threadId={open.threadId} />
             </div>
           )}
         </div>

@@ -13,6 +13,7 @@ import { credential } from "./env";
 import { createLogger } from "./logger";
 import { stripQuoted, type MailMessage } from "./mailStore";
 import { PROFILE, shortIntro } from "./profile";
+import { renderTemplate } from "./replyTemplates";
 
 const log = createLogger("freellm");
 
@@ -105,7 +106,8 @@ async function chat(
       signal: AbortSignal.timeout(TIMEOUT_MS),
       body: JSON.stringify({
         model: model(),
-        temperature: 0.4,
+        // Magasabb: ugyanarra a helyzetre se adja mindig ugyanazt a szöveget.
+        temperature: 0.8,
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: system },
@@ -148,14 +150,20 @@ function safeJson(text: string): Record<string, unknown> | null {
 const SYSTEM_PROMPT = `
 You draft email replies on behalf of ${PROFILE.name}, a full-stack TypeScript developer looking for work.
 Rules:
-- Reply in the language of the latest incoming email (Hungarian or English). Hungarian: ALWAYS formal magázás, even if the sender writes informally — never "te" forms (wrong: "eszedbe", "neked", "köszönöm, hogy írtál"; right: "eszébe", "Önnek", "köszönöm, hogy írt").
+- Reply in the language of the latest incoming email (Hungarian or English). Hungarian: mirror the sender — if they use tegezés (Szia, köszi, leveled, CV-d), reply with tegezés, plural towards the company ("pozíciótok", "felvennétek"); otherwise formal magázás ("pozíciójuk", "felvennék", "Önök"). Never mix the two in one letter.
 - Use ONLY facts from PROFILE and THREAD. Never invent dates, availability, salary, positions or experience.
 - If a needed fact is unknown, leave it out. Never write placeholders or square brackets.
 - Never correct or comment on how the sender addressed him.
-- Answer what the latest incoming email actually says or asks; do not repeat earlier emails.
-- You write AS ${PROFILE.name}, in first person singular. HE attaches a PDF to THIS reply: a short document about himself and his work, with a brief analysis of his projects. The recipient did NOT send any PDF. Say this in exactly one sentence, in first person, e.g. Hungarian: "Csatolok egy rövid dokumentumot magamról és a munkáimról, benne a projektjeim rövid elemzésével — hátha hasznos lehet a későbbiekben." English: "I have attached a short document about myself and my work, including a brief analysis of my projects, in case it is useful later on."
-- If the sender declined (no open position), thank them for the reply, say you understand, and that you would be glad if they kept you in mind / reached out to you should something open up. The sender is the one who would reach out — keep the grammar right. Hungarian wording to use: "Ha a jövőben nyílna lehetőség, örülnék, ha gondolnának rám." English: "Should anything open up in the future, I would be glad if you kept me in mind."
-- Match the tone and length of STYLE EXAMPLES. Keep it short: 3-6 sentences between greeting and sign-off.
+- Read the latest incoming email carefully and react to what it ACTUALLY says. Refer to at least one concrete detail from it (their reason, their team, a timeline, a question) so the reply could not be sent to anyone else. Do not repeat earlier emails.
+- If the sender asks questions, answer each one directly, using only PROFILE facts. If the answer is not in PROFILE (e.g. salary, start date), say you would gladly discuss it on a short call — never invent it.
+- If the sender points to their careers page / website / job board for future openings, say you will keep an eye on it, but you would also be glad if they reached out to you directly should something suitable come up.
+- If the sender declined (no open position), thank them, show you understand, and say you would be glad if they kept you in mind should something open up. The sender is the one who would reach out — keep the grammar right.
+- If the sender shows interest (wants a call, asks for availability, forwards the CV internally), respond to that concretely and positively instead of treating it as a rejection.
+- You write AS ${PROFILE.name}, in first person singular. When ATTACHMENT is "yes", HE attaches a PDF to THIS reply: a short document about his professional background and some earlier projects with their key results. The recipient did NOT send any PDF. Mention it in one first-person sentence. When ATTACHMENT is "no", never claim anything is attached.
+- Natural, polite, professional; not stiff or bureaucratic, and do not repeat yourself.
+- STYLE EXAMPLES show only the tone and length to aim for. Do NOT copy their sentences or structure.
+- Keep it short: 3-6 sentences between greeting and sign-off.
+- Format: the greeting alone on the first line, then a blank line, then 2-4 short paragraphs (1-2 sentences each) separated by blank lines ("\\n\\n"). Never put the whole email on one line.
 - Address the sender by name if known, otherwise the company's team.
 - End the body with the last sentence. Do NOT write a closing phrase, name or contact details — the signature is appended automatically.
 - Return ONLY JSON: {"language":"hu"|"en","body":string}.
@@ -196,6 +204,10 @@ export interface ReplyDraftInput {
   messages: MailMessage[];
   /** Korábbi saját válaszok — ezek hangját és hosszát kövesse. */
   styleExamples: string[];
+  /** A felhasználó kiegészítő utasítása ehhez az egy levélhez. */
+  instruction?: string;
+  /** Megy-e csatolmány a levélhez; alapból igen (a nyelvhez beállított fájl). */
+  withAttachment?: boolean;
 }
 
 export interface ReplyDraftOutput {
@@ -216,17 +228,46 @@ function buildUserPrompt(input: ReplyDraftInput): string {
           .join("\n\n")
       : "(none yet — keep it short and polite)",
     "",
+    `ATTACHMENT: ${input.withAttachment === false ? "no" : "yes"}`,
     `COMPANY: ${input.company}`,
     input.senderName ? `SENDER: ${input.senderName}` : "",
     "",
     "THREAD (oldest first):",
     threadBlock(input.messages),
+    ...(input.instruction?.trim()
+      ? [
+          "",
+          "MY INSTRUCTION FOR THIS REPLY (follow it; it overrides the content rules above, but never the facts rule):",
+          input.instruction.trim(),
+        ]
+      : []),
   ].join("\n");
 }
 
 /** Elköszönésnek számító sor — ezzel kezdődik a modell saját aláírása. */
 const SIGN_OFF =
   /^(üdvözlettel|tisztelettel|köszönettel|szép napot|best regards|kind regards|regards|best wishes|sincerely)[,.!]?$/i;
+
+/** Mondathatár: írásjel, szóköz, nagybetű (ékezetes is — a `\\b` itt nem jó). */
+const SENTENCE_END = /(?<=[.!?])\s+(?=[A-ZÁÉÍÓÖŐÚÜŰ])/;
+
+/**
+ * Ha a modell egy tömbbe írta a levelet: a megszólítás külön sorba, a többi
+ * kétmondatos bekezdésekre. Ha már van benne bekezdés, nem nyúl hozzá.
+ */
+export function paragraphs(body: string): string {
+  const text = body.replace(/\\n/g, "\n").trim();
+  if (text.includes("\n\n")) return text;
+  const flat = text.replace(/\s*\n\s*/g, " ");
+  // A megszólítás az első „!" vagy „," -ig, ha rövid.
+  const greeting = /^[^!,.?]{2,60}[!,]/.exec(flat)?.[0] ?? "";
+  const sentences = flat.slice(greeting.length).trim().split(SENTENCE_END);
+  const blocks: string[] = [];
+  for (let index = 0; index < sentences.length; index += 2) {
+    blocks.push(sentences.slice(index, index + 2).join(" "));
+  }
+  return [greeting, ...blocks].filter(Boolean).join("\n\n");
+}
 
 /**
  * A modell aláírását levágja, és mindig ugyanazt teszi a végére — a helyi
@@ -242,6 +283,7 @@ export function withSignature(body: string, language: "hu" | "en"): string {
     if (
       SIGN_OFF.test(line) ||
       line === PROFILE.name ||
+      line === PROFILE.nameEn ||
       line.includes(PROFILE.email)
     ) {
       cut = index;
@@ -252,7 +294,7 @@ export function withSignature(body: string, language: "hu" | "en"): string {
     lines.slice(0, cut).join("\n").trimEnd(),
     "",
     closing,
-    PROFILE.name,
+    language === "hu" ? PROFILE.name : PROFILE.nameEn,
     `${PROFILE.email} · ${PROFILE.phone}`,
   ].join("\n");
 }
@@ -261,9 +303,55 @@ export function withSignature(body: string, language: "hu" | "en"): string {
  * A piszkozat: nyelv és szöveg. Hibás JSON vagy kitöltendő hely esetén újat
  * kér — a harmadik után feladja.
  */
+const CLASSIFY_PROMPT = `
+You read the latest incoming email of an email thread and return ONLY JSON:
+{"language":"hu"|"en","informal":boolean,"name":string|null}
+- language: the language of the latest incoming email (anything not Hungarian → "en").
+- informal: true if the sender uses tegezés / an informal tone (Szia, köszi, leveled, CV-d; Hey, Hi + first name, Cheers), false if formal (magázás, Tisztelt, Dear, Kind regards).
+- name: how to address the sender in the greeting — the name they signed with. Hungarian: informal → given name only ("Attila"); formal → full name in Hungarian order ("Kiss Attila"). English: given name only. null if no person's name is known.
+`.trim();
+
+/**
+ * Utasítás nélkül: a modell csak nyelvet, hangnemet és nevet dönt, a levél
+ * a felhasználó mintája betű szerint (`replyTemplates`).
+ */
+async function templateReply(
+  input: ReplyDraftInput,
+): Promise<ReplyDraftOutput> {
+  const user = [
+    input.senderName ? `SENDER: ${input.senderName}` : "",
+    "THREAD (oldest first):",
+    threadBlock(input.messages),
+  ].join("\n");
+  for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
+    const { content, routedVia } = await chat(CLASSIFY_PROMPT, user);
+    const data = safeJson(content);
+    const language =
+      data?.language === "hu" || data?.language === "en" ? data.language : null;
+    if (!language || typeof data?.informal !== "boolean") {
+      log.debug(
+        `${input.company}: hibás JSON (${routedVia}), új próba ${attempt}/${ATTEMPTS}`,
+      );
+      continue;
+    }
+    const body = renderTemplate({
+      language,
+      informal: data.informal,
+      withAttachment: input.withAttachment ?? true,
+      name: typeof data.name === "string" ? data.name : null,
+      company: input.company,
+    });
+    return { language, body: withSignature(body, language), model: routedVia };
+  }
+  throw new Error(
+    `A FreeLLMAPI ${ATTEMPTS} próbálkozás után sem döntötte el a levél nyelvét és hangnemét — generáld újra.`,
+  );
+}
+
 export async function generateReplyDraft(
   input: ReplyDraftInput,
 ): Promise<ReplyDraftOutput> {
+  if (!input.instruction?.trim()) return templateReply(input);
   const user = buildUserPrompt(input);
   let reason = "";
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
@@ -279,7 +367,7 @@ export async function generateReplyDraft(
     } else {
       return {
         language,
-        body: withSignature(body, language),
+        body: withSignature(paragraphs(body), language),
         model: routedVia,
       };
     }

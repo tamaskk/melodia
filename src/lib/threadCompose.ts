@@ -1,26 +1,23 @@
 /**
  * Kézi levél egy meglévő szálba, egy prompt alapján.
  *
- * A levelezés oldalán megnyitott szálhoz a felhasználó leírja, mit akar
- * írni; a helyi Claude CLI a szál előzményéből megírja, a felhasználó
- * átnézi, és azonnal kimegy — ugyanabba a szálba (`In-Reply-To`), arról a
+ * A levelezés oldalán megnyitott szálhoz a helyi LLM az alap válasz-prompttal
+ * és a felhasználó kiegészítő utasításával megírja, a felhasználó átnézi, és
+ * azonnal kimegy — ugyanabba a szálba (`In-Reply-To`), arról a
  * saját fiókról, amelyiken a szál fut. Nem időzít, nem kötődik a napi
  * kerethez: egy levél, kézzel jóváhagyva.
  */
-import { askClaude } from "./aiText";
 import { resolveSelection } from "./attachments";
 import { ensureAccounts, listAccounts } from "./accounts";
 import { createLogger } from "./logger";
-import { stripQuoted, threadMessages, type MailMessage } from "./mailStore";
+import { threadMessages, type MailMessage } from "./mailStore";
 import { sendFollowUpEmail } from "./mailer";
-import { PROFILE } from "./profile";
+import { getReplyAttachments, replyAttachmentFor } from "./replyAttachments";
+import { generateReplyDraft } from "./replyLlm";
 import { isNoReply, replySubject } from "./threadReplyDraft";
 
 const log = createLogger("szallevel");
 
-/** Ennyi korábbi levelet kap a modell — a régebbiek csak a promptot hizlalnák. */
-const HISTORY = 6;
-const PER_MESSAGE = 2500;
 /** Automatikus válasz előtagja a tárgyban — a mi levelünkre ne ezzel feleljünk. */
 const AUTO_PREFIX =
   /^\s*(automatikus válasz|automatic reply|auto(matische antwort)?|out of office|abwesenheitsnotiz)\s*:\s*/i;
@@ -42,6 +39,8 @@ export interface ThreadDraft {
   body: string;
   language: string | null;
   model: string;
+  /** A nyelvhez a Beállításokban választott csatolmány, ha megvan a mappában. */
+  attachments: string[];
   target: ThreadTarget;
 }
 
@@ -125,85 +124,36 @@ export async function threadTarget(threadId: string): Promise<ThreadTarget> {
   return resolveTarget(threadId, await threadMessages(threadId));
 }
 
-function history(messages: MailMessage[]): string {
-  return messages
-    .filter((message) => !message.bounce)
-    .slice(-HISTORY)
-    .map((message) => {
-      const who =
-        message.direction === "out"
-          ? `Én (${PROFILE.name})`
-          : (message.from.name ?? message.from.address);
-      const text = stripQuoted(message.text).slice(0, PER_MESSAGE);
-      return `--- ${who} · ${message.date.slice(0, 10)}${message.auto ? " · automatikus válasz" : ""}\n${text}`;
-    })
-    .join("\n\n");
-}
-
-export function composePrompt(
-  target: ThreadTarget,
-  messages: MailMessage[],
-  instruction: string,
-): string {
-  return [
-    `Egy álláskereső full stack fejlesztő (${PROFILE.name}) nevében írsz levelet egy meglévő levélszálba.`,
-    "",
-    `Cég: ${target.company}`,
-    `Címzett: ${target.toName ? `${target.toName} <${target.to}>` : target.to}`,
-    "",
-    "A szál eddig (a legrégebbitől a legújabbig):",
-    '"""',
-    history(messages),
-    '"""',
-    "",
-    "MIT ÍRJON A LEVÉL (a felhasználó kérése — ez a feladat):",
-    '"""',
-    instruction.slice(0, 2000),
-    '"""',
-    "",
-    "Szabályok:",
-    "- Azon a nyelven írj, amelyiken a szál folyik (ha a kérés mást mond, a kérés dönt).",
-    "- Rövid, udvarias, formális (magyarul magázó) hang; hízelgés és mentegetőzés nélkül.",
-    "- Ha ismert a címzett neve, őt szólítsd meg; különben a cég csapatát.",
-    "- Csak a szálból és a kérésből következő tényekre hivatkozz. Ne találj ki pozíciót, időpontot, számot, korábbi beszélgetést.",
-    "- Ne hagyj kitöltendő helyet vagy szögletes zárójelet.",
-    "- Ne idézd vissza a korábbi leveleket.",
-    `- Az aláírás pontosan ez legyen, külön sorokban: a nyelvnek megfelelő elköszönés, alatta „${PROFILE.name}", alatta „${PROFILE.email} · ${PROFILE.phone}".`,
-    "",
-    'A válasz kizárólag ez a JSON: {"language": "<kétbetűs kód>", "body": "<a teljes levél szövege, sortörésekkel>"}',
-  ].join("\n");
-}
-
 export async function draftThreadMail(
   threadId: string,
   instruction: string,
 ): Promise<ThreadDraft> {
-  if (!instruction.trim()) throw new Error("Írd le, miről szóljon a levél.");
   await ensureAccounts();
   const messages = await threadMessages(threadId);
   const target = resolveTarget(threadId, messages);
-  const { data, model } = await askClaude(
-    composePrompt(target, messages, instruction),
-    {
-      contactId: target.contactId,
-      company: target.company,
-      origin: "szallevel",
-    },
-  );
-  const body = typeof data.body === "string" ? data.body.trim() : "";
-  if (!body)
-    throw new Error("A modell üres levelet adott vissza — próbáld újra.");
-  if (/\[[^\]\n]{2,}\]/.test(body)) {
-    throw new Error(
-      "A piszkozatban kitöltendő hely maradt — pontosítsd a kérést, és generáld újra.",
-    );
-  }
-  const language =
-    typeof data.language === "string" && /^[a-z]{2}$/i.test(data.language)
-      ? data.language.toLowerCase()
-      : null;
-  log.info(`piszkozat: ${target.company}`, { model, nyelv: language });
-  return { subject: target.subject, body, language, model, target };
+  const draft = await generateReplyDraft({
+    company: target.company,
+    senderName: target.toName,
+    messages,
+    styleExamples: [],
+    instruction: instruction.slice(0, 2000),
+    // A nyelv még nem dől el: ha valamelyik nyelvhez van beállított fájl, megy.
+    withAttachment: Object.values(await getReplyAttachments()).some(Boolean),
+  });
+  const name = await replyAttachmentFor(draft.language);
+  const { files } = name ? await resolveSelection([name]) : { files: [] };
+  log.info(`piszkozat: ${target.company}`, {
+    model: draft.model,
+    nyelv: draft.language,
+  });
+  return {
+    subject: target.subject,
+    body: draft.body,
+    language: draft.language,
+    model: draft.model,
+    attachments: files.length && name ? [name] : [],
+    target,
+  };
 }
 
 export async function sendThreadMail(
